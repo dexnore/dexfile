@@ -1,6 +1,9 @@
 # Dexfile Reference
 Welcome to the Dexfile Reference documentation. This document provides a detailed guide to the instructions available in a Dexfile, designed for building and managing complex software build workflows. Dexfiles offer a powerful and flexible way to define build processes with features like conditional logic, containerized execution contexts, and reusable functions.
 
+> [!IMPORTANT]
+> Note: To enable Dexfile syntax, you must use the `dexnore/dexfile:latest` image as the frontend for your BuildKit build. This is typically done by adding `# syntax=docker.io/dexnore/dexfile:latest` as the first line of your file.
+
 ## IMPORT
 The IMPORT instruction is used to bring in external resources into your build process. These can be other Dexfiles, container images, or build contexts from various sources like local paths, Git repositories, or OCI registries. This allows for creating modular and composable build definitions.
 ```Syntax
