@@ -1,173 +1,209 @@
 # Dexfile Reference
-Welcome to the Dexfile Reference documentation. This document provides a detailed guide to the instructions available in a Dexfile, designed for building and managing complex software build workflows. Dexfiles offer a powerful and flexible way to define build processes with features like conditional logic, containerized execution contexts, and reusable functions.
 
-> [!IMPORTANT]
-> Note: To enable Dexfile syntax, you must use the `dexnore/dexfile:latest` image as the frontend for your BuildKit build. This is typically done by adding `# syntax=docker.io/dexnore/dexfile:latest` as the first line of your file.
+Welcome to the comprehensive Dexfile Reference. Dexfile is a BuildKit frontend that **extends Dockerfile syntax** with additional instructions for advanced, flexible, and modular build workflows. All standard Dockerfile commands and flags are supported; you may use them alongside Dexfile-specific features. This document is the definitive reference for all supported instructions, argument forms, and flags.
 
-## IMPORT
-The IMPORT instruction is used to bring in external resources into your build process. These can be other Dexfiles, container images, or build contexts from various sources like local paths, Git repositories, or OCI registries. This allows for creating modular and composable build definitions.
-```Syntax
-IMPORT [flags] <source> AS <alias>
+---
+
+## Enabling Dexfile Syntax
+
+To use Dexfile syntax, ensure your Dexfile starts with:
 ```
- - `<source>`: The URI of the resource to import. Supported schemes include:
-    - `local:<path>`: A local directory.
-    - `docker-image://<image>:<tag>`: A Docker image from a registry.
-    - `oci-layout://<path>`: An OCI image layout on the local filesystem.
-    - `inputs:<name>`: A frontend-specific input.
-    - `git:<url>`: A Git repository.
-    - `https://<url>`: An HTTP(S) URL pointing to a context.
-  - `<alias>`: A name to refer to the imported resource within the Dexfile.
-  - `--file=<path>`: (Optional) Specifies the path to a Dexfile within the source context. If omitted, the basename of the source is used as the build context.
-### Examples
-#### Importing a local Dexfile:
-This example imports a `Dexfile` from a local directory named `shared-builds` and aliases it as common.
-```Syntax
-IMPORT --file=common.dex local:shared-builds AS common
+# syntax=docker.io/dexnore/dexfile:latest
 ```
-#### Importing a Docker Image:
-Here, we import the official `node:18-alpine` image to use as a base for a containerized step.
-```Syntax
-IMPORT docker-image://node:18-alpine AS node-base
+
+Dexfile supports an ignore file named `.dexnore`. This file works analogously to `.dockerignore` for Dockerfile, allowing you to specify files and directories to exclude from the build context, thus reducing context size and improving build performance.
+
+---
+
+## Table of Contents
+
+- [Standard Dockerfile Instructions](#standard-dockerfile-instructions)
+- [Dexfile-Specific Instructions](#dexfile-specific-instructions)
+  - [IMPORT](#import)
+  - [CTR / ENDCTR](#ctr--endctr)
+  - [PROC](#proc)
+  - [IF / ELSE IF / ELSE / ENDIF](#if--else-if--else--endif)
+  - [FOR / ENDFOR](#for--endfor)
+  - [FUNC / ENDFUNC / FUNC CALL](#func--endfunc--func-call)
+  - [EXEC](#exec)
+- [General Notes](#general-notes)
+
+---
+
+## Standard Dockerfile Instructions
+
+Dexfile supports **all standard Dockerfile instructions** and their flags, including:
+
+- `FROM`
+- `RUN`
+- `CMD`
+- `LABEL`
+- `MAINTAINER`
+- `EXPOSE`
+- `ENV`
+- `ADD`
+- `COPY`
+- `ENTRYPOINT`
+- `VOLUME`
+- `USER`
+- `WORKDIR`
+- `ARG`
+- `ONBUILD`
+- `STOPSIGNAL`
+- `HEALTHCHECK`
+- `SHELL`
+
+All arguments, options, and flags available in Dockerfile are valid in Dexfile.
+
+---
+
+## Dexfile-Specific Instructions
+
+### IMPORT
+
+Import external resources into the build. Supported source types include local directories, Docker/OCI images, Git repositories, HTTP(S) URLs, and frontend-specific inputs.
+
+**Syntax**
 ```
-#### Importing from a Git Repository:
-This imports a build context directly from a GitHub repository.
-```Syntax
-IMPORT --file=build.dex git:https://github.com/my-org/my-project AS project-from-git
+IMPORT [--platform=<platform>] [--target=<target>] [--file=<path>] [--opt=<key>=<value>] <source> AS <alias>
 ```
-## `CTR / ENDCTR`
-The CTR block defines a scope where instructions are executed inside a specified container. This is useful for creating isolated build environments or running tasks that require specific tooling not available in the main build stage.
-```Syntax
+
+**Arguments and Flags:**
+- `<source>`: URI of the resource to import.
+  - `local:<path>`
+  - `docker-image://<image>`
+  - `oci-layout://<path>`
+  - `inputs:<name>`
+  - `git:<url>`
+  - `https://<url>`
+- `AS <alias>`: Required. Name to refer to the imported resource.
+- `--platform=<platform>`: (Optional) Set target platform for the imported stage.
+- `--target=<target>`: (Optional) Target stage of the imported Dexfile/Dockerfile/other frontend.
+- `--file=<path>`: (Optional) Path to a frontend definition file (Dexfile, Dockerfile, etc.).
+- `--opt=<key>=<value>`: (Optional, repeatable) Set frontend options passed to the imported frontend.
+
+---
+
+### CTR / ENDCTR
+
+Define a block where instructions are executed inside a specific imported container image.  
+The `CTR` instruction creates an **ephemeral container** for the duration of the block.
+
+**Syntax**
+```
 CTR --from=<image_alias>
     <instructions>...
 ENDCTR
 ```
-  - `--from=<image_alias>`: Specifies the container image to use for this block. The image must be previously imported using the IMPORT instruction.
-### Details
-Instructions within a `CTR` block, such as `PROC`, operate inside the container's filesystem and environment. Other instructions like `RUN` will execute on the current stage, not inside the container, unless they are part of a `PROC` command.This provides a powerful way to separate build-time dependencies from the final runtime environment.
-### Example
-This example uses a golang container to compile a Go application. The source code is copied into the container, built, and the resulting binary can then be used in a later stage.
-```Syntax
-IMPORT docker-image://golang:1.20 AS go-builder
 
-CTR --from=go-builder
-    # Set the working directory inside the container
-    WORKDIR /app
+**Flags:**
+- `--from=<image_alias>`: Required. Alias of an image imported with `IMPORT`.
 
-    # Copy source code into the container (assuming a COPY instruction exists)
-    COPY . .
+---
 
-    # Run the build process inside the container
-    PROC go build -o /app/my-app .
-ENDCTR
+### PROC
+
+Run a command as a process inside the active container of a `CTR` block. Only valid inside a CTR block.
+
+**Syntax**
 ```
-## PROC
-The `PROC` instruction executes a command as a process inside the container defined by a `CTR` block. It is the primary way to run commands within the containerized environment. `PROC` can only be used within a `CTR/ENDCTR` block.
-```Syntax
-PROC <command>
-```
-  - `<command>`: The command and its arguments to execute inside the container.
-#### Example
-In this example, we use a python container to install dependencies from a requirements.txt file.
-```Syntax
-IMPORT docker-image://python:3.10-slim AS python-env
-
-CTR --from=python-env
-    WORKDIR /app
-    COPY requirements.txt .
-
-    # Install Python dependencies inside the container
-    PROC pip install --no-cache-dir -r requirements.txt
-ENDCTR
+PROC <command> [args...] [--timeout=<duration>]
 ```
 
-## `IF / ELSE / ENDIF`
-The IF block allows for conditional execution of instructions based on the outcome of a command. This enables dynamic build workflows that can adapt to different conditions, such as the presence of certain files or the output of a script.
-```Syntax
-IF [RUN | EXEC | PROC] <command>
-    <if_instructions>...
-[ELSE | ELSE IF [RUN | EXEC | PROC] <command>]
-    <else_instructions>...
+**Arguments and Flags:**
+- `<command>`: Command to execute inside the container.
+- `--timeout=<duration>`: (Optional) Maximum execution duration for the process. Defaults to `10m`. After timeout, the ephemeral container is removed.
+
+---
+
+### IF / ELSE IF / ELSE / ENDIF
+
+Conditional execution of instructions depending on the exit code of a test command.
+
+**Syntax**
+```
+IF [RUN | EXEC | PROC] <command> [--timeout=<duration>]
+    <instructions>...
+[ELSE IF [RUN | EXEC | PROC] <command> [--timeout=<duration>]]
+    <instructions>...
+[ELSE]
+    <instructions>...
 ENDIF
 ```
-The condition is determined by the exit code of the `<command>`. A zero exit code is considered true, and a non-zero exit code is considered false.RUN, EXEC, or PROC can be used to execute the conditional command. PROC is only valid within a CTR block.The environment variables `STDOUT` and `STDERR` are available within the IF/ELSE blocks, containing the output of the conditional command.
-### Example: 
-Detecting Project TypeThis example demonstrates how to detect if a project is a Node.js or Python project and then run the appropriate dependency installation command.
-```Syntax
-# Assume this CTR block is for a general-purpose environment with both node and python
-CTR --from=my-polyglot-image
-    WORKDIR /src
-    COPY . .
 
-    # Check if a package.json file exists
-    IF RUN test -f package.json
-        # It's a Node.js project
-        RUN echo "Node.js project detected. Installing dependencies."
-        PROC npm install
-    ELSE IF RUN test -f requirements.txt
-        # It's a Python project
-        RUN echo "Python project detected. Installing dependencies."
-        PROC pip install -r requirements.txt
-    ELSE
-        # Neither was found
-        RUN echo "Could not determine project type. No dependencies installed."
-    ENDIF
-ENDCTR
+**Arguments and Flags:**
+- `[RUN | EXEC | PROC] <command>`: Specify how to execute the condition.
+  - `RUN <command>`: Run command in current stage
+  - `EXEC <command>`: Run command in an ephemeral container; expects buildkit-supported protobuf state in stdout
+  - `PROC <command>`: Run command inside the current CTR block
+- `--timeout=<duration>`: (Optional) Maximum execution duration. Defaults to `10m`. After timeout, the ephemeral container is removed.
+
+---
+
+### FOR / ENDFOR
+
+Iterate over matches from a command's output (with optional delimiter regex).
+
+**Syntax**
 ```
-## `FUNC / ENDFUNC / CALL`
-The FUNC instruction allows you to define reusable groups of instructions. These functions can then be invoked later in the Dexfile using the CALL instruction, promoting modularity and reducing duplication.
-```Syntax
-# Definition:
-FUNC <function_name>
+FOR <variable> IN [RUN | EXEC] <command> [args...] [--delim=<regex>] [--timeout=<duration>]
+  <instructions>...
+ENDFOR
+```
+
+**Arguments and Flags:**
+- `<variable>`: Name of the loop variable.
+- `IN [RUN | EXEC] <command>`: Source command for producing iteration values.
+- `--delim=<regex>`: (Optional) Regular expression to match output delimiters (used to split stdout of the command for each loop iteration).
+- `--timeout=<duration>`: (Optional) Maximum execution duration for the command. Defaults to `10m`. Ephemeral container is removed after timeout.
+
+---
+
+### FUNC / ENDFUNC / FUNC CALL
+
+Define and call reusable functions (instruction blocks).
+
+**Syntax**
+```
+FUNC <function_name> [--<arg-key>=<arg-value> ...]
     <instructions>...
 ENDFUNC
-# Invocation:
-FUNC CALL <function_name>
-```
-  - `<function_name>`: A unique name for the function.
-### Example: 
-Reusable Build and Test FunctionThis example defines a function to build and test a generic application, then calls it for different components.
-```Syntax
-# Define a reusable function to build and test
-FUNC build_and_test
-    RUN echo "Starting build..."
-    PROC make build
-    RUN echo "Running tests..."
-    PROC make test
-ENDFUNC
 
-# --- Main Build Logic ---
+FUNC CALL <function_name> [--<arg-key>=<arg-value> ...]
+```
 
-# Build the backend service
-CTR --from=go-builder
-    WORKDIR /app/backend
-    COPY ./backend .
-    FUNC CALL build_and_test
-ENDCTR
+**Arguments and Flags:**
+- `<function_name>`: Unique identifier for the function.
+- `--<arg-key>=<arg-value>`: (Optional, repeatable) Argument key-value pairs passed to the function. These can have default values in the function definition, and may be overridden by the caller.
 
-# Build the frontend service
-CTR --from=node-builder
-    WORKDIR /app/frontend
-    COPY ./frontend .
-    FUNC CALL build_and_test
-ENDCTR
+---
+
+### EXEC
+
+Execute a command in an ephemeral container. The command's `stdout` **must** emit a BuildKit-supported protobuf message describing the desired state.
+
+**Syntax**
 ```
-## `EXEC`
-The EXEC instruction is an advanced feature for extending Dexfile's capabilities. It executes a command on the build host that is expected to output a pb.Definition protobuf message to its standard output. This allows for the dynamic generation of build steps and the creation of custom high-level instructions.
-```Syntax
-EXEC <command>
+EXEC <command> [args...] [--timeout=<duration>]
 ```
-  - `<command>`: A command that, when executed, prints a valid pb.Definition to stdout.Use CaseEXEC is intended for complex scenarios where the standard Dexfile instructions are insufficient. For example, you could write a script that inspects a project's structure and generates a tailored set of CTR and PROC instructions based on the services it finds.ExampleImagine a script generate-build-steps.sh that analyzes a monorepo and generates build steps.
-```Syntax
-# generate-build-steps.sh
-#!/bin/bash
-# This script would contain logic to generate a pb.Definition
-# For demonstration, it just prints a pre-defined protobuf definition
-cat <<EOF
-... a valid pb.Definition protobuf message ...
-EOF
-```
-In the Dexfile, you would use it like this:
-```Syntax
-# Dynamically generate and execute build steps based on the project structure
-EXEC ./scripts/generate-build-steps.sh
-```
+
+**Arguments and Flags:**
+- `<command>`: Command to execute in the ephemeral container.
+- `--timeout=<duration>`: (Optional) Maximum execution duration. Defaults to `10m`. After timeout, the ephemeral container is removed.
+
+---
+
+## General Notes
+
+- **Mixing Instructions**: Standard Dockerfile and Dexfile instructions may be freely mixed.
+- **Ephemeral Containers**: Both `CTR` and `EXEC` operate on ephemeral containers created for their scope. These containers are removed after execution or timeout.
+- **Context Awareness**: `PROC` instructions only make sense within a `CTR` block.
+- **Conditional Branching**: `IF` blocks support both `ELSE IF` and `ELSE` branches for multi-path logic.
+- **Looping**: `FOR` enables iteration over command output, with flexible splitting of results using `--delim`.
+- **Functionality**: `FUNC` and `FUNC CALL` enable modular, reusable build logic with optional arguments and defaults.
+- **Timeouts**: `EXEC`, `PROC`, `IF`, `ELSE`, and `FOR` support a `--timeout` flag (default: 10m). When timeout is reached, any ephemeral containers are removed.
+- **Ignore Patterns**: Use `.dexnore` to optimize context and build performance. Patterns in `.dexnore` control which files/directories are excluded from the build context.
+
+---
+
+For further details and advanced usage, see the official Dexfile documentation or visit the [Dexfile repository](https://github.com/dexnore/dexfile).
