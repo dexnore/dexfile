@@ -68,6 +68,8 @@ func parseEndCtr(req parseRequest) (endCtr *EndContainer, err error) {
 
 func parseProc(req parseRequest) (proc *CommandProcess, err error) {
 	proc = &CommandProcess{withNameAndCode: newWithNameAndCode(req)}
+	flTimeout := req.flags.AddString("timeout", "")
+	flFrom := req.flags.AddString("from", "")
 	run, err := parseRun(req)
 	if err != nil {
 		return nil, err
@@ -78,13 +80,10 @@ func parseProc(req parseRequest) (proc *CommandProcess, err error) {
 	}
 
 	proc.RUN = *run
-	flTimeout := req.flags.AddString("timeout", "")
-	flFrom := req.flags.AddString("from", "")
 	if err := req.flags.Parse(); err != nil {
 		return nil, err
 	}
 	proc.BaseImage = flFrom.Value
-
 	timeout, err := parseOptInterval(flTimeout)
 	if err != nil {
 		return nil, err

@@ -55,18 +55,12 @@ func parseElse(req parseRequest) (elsecmd *ConditionElse, err error) {
 	elsecmd = &ConditionElse{}
 	elsecmd.withNameAndCode = newWithNameAndCode(req)
 	if len(req.args) > 0 {
-		// else sub-command
 		original := regexp.MustCompile(`(?i)^\s*ELSE\s*`).ReplaceAllString(req.original, "")
 		for _, heredoc := range req.heredocs {
 			original += "\n" + heredoc.Content + heredoc.Name
 		}
 
 		res, _ := parser.Parse(strings.NewReader(original))
-		// if err == nil {
-		// 	return elsecmd, nil
-		// 	// errors.Wrapf(err, "failed to parse [ELSE] block. Please check your syntax and ensure all required fields are present. Input was:\n%s", original)
-		// }
-
 		if res != nil {
 			if len(res.AST.Children) != 1 {
 				return nil, errors.New("else command should have single IF condition")
@@ -81,8 +75,5 @@ func parseElse(req parseRequest) (elsecmd *ConditionElse, err error) {
 			elsecmd.End = cmd.End
 		}
 	}
-	// else
-	// 		some-instruction
-	// endif
 	return elsecmd, nil
 }

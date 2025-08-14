@@ -345,8 +345,6 @@ func ParseConditional(ast *parser.Node, lint *linter.Linter) (cond *ConditionIfE
 		}
 
 		switch c := cmd.(type) {
-		case *Stage, *ImportCommand:
-			return nil, i, parser.WithLocation(errors.Errorf("parser error: conditional block error: %T not suppoprted", c), n.Location())
 		case *ConditionIF: // Nested IF/ELSE block
 			// STRICT REQUIREMENT: currentElse must be initialized if in an else context
 			if inElse && currentElse == nil {
@@ -546,8 +544,6 @@ func ParseLoop(ast *parser.Node, lint *linter.Linter) (forcmd *CommandFor, i int
 		}
 
 		switch c := cmd.(type) {
-		case *Stage, *ImportCommand:
-			return nil, i, parser.WithLocation(errors.Errorf("parser error: FOR block error: %T not suppoprted", c), n.Location())
 		case *CommandFor: // Nested IF/ELSE block
 			// The current node 'n' (which is the nested 'if') starts the nested block.
 			// Pass the remaining children from the current index onwards to the recursive call.
@@ -623,8 +619,6 @@ func ParseContainer(ast *parser.Node, lint *linter.Linter) (ctrcmd *CommandConat
 		}
 
 		switch c := cmd.(type) {
-		case *Stage, *ImportCommand:
-			return nil, i, parser.WithLocation(errors.Errorf("parser error: CTR block error: %T not suppoprted", c), n.Location())
 		case *CommandConatainer: // Nested IF/ELSE block
 			// The current node 'n' (which is the nested 'if') starts the nested block.
 			// Pass the remaining children from the current index onwards to the recursive call.
@@ -707,8 +701,6 @@ func ParseFunction(ast *parser.Node, lint *linter.Linter) (fun *Function, i int,
 		}
 
 		switch c := cmd.(type) {
-		case *Stage, *ImportCommand:
-			return nil, i, parser.WithLocation(errors.Errorf("parser error: FUNC block error: %T not suppoprted", c), n.Location())
 		case *Function: // Nested IF/ELSE block
 			// The current node 'n' (which is the nested 'if') starts the nested block.
 			// Pass the remaining children from the current index onwards to the recursive call.

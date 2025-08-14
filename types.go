@@ -138,19 +138,6 @@ type Flag interface {
 	StringValues() []string
 }
 
-// type ParseCommand func(ast *parser.Node) (Command, error)
-
-// type ParseRequest struct {
-// 	Command    string
-// 	Args       []string
-// 	Heredocs   []parser.Heredoc
-// 	Attributes map[string]bool
-// 	Flags      BFlags
-// 	Original   string
-// 	Location   []parser.Range
-// 	Comments   []string
-// }
-
 type ConvertOpt struct {
 	Config         ClientConfig
 	BC             BuildClient

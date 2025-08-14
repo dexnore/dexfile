@@ -14,7 +14,6 @@ type ImportCommand struct {
 	OrigCmd   string    // original IMPORT command, used for rule checks
 	BaseName  string    // name of the base stage or source
 
-	Context  string // context of the base stage
 	Target   string // target platform
 	FileName string // target filename
 	Platform string // platform of base source to use
@@ -51,7 +50,6 @@ func parseImport(req parseRequest) (*ImportCommand, error) {
 
 	flPlatform := req.flags.AddString("platform", "")
 	flTarget := req.flags.AddString("target", "")
-	flContext := req.flags.AddString("context", "")
 	flFilename := req.flags.AddString("file", "")
 	flOptions := req.flags.AddStrings("opt")
 	if err := req.flags.Parse(); err != nil {
@@ -78,7 +76,6 @@ func parseImport(req parseRequest) (*ImportCommand, error) {
 		SourceCode: code,
 		Commands:   []Command{},
 		Platform:   flPlatform.Value,
-		Context:    flContext.Value,
 		Target:     flTarget.Value,
 		FileName:   flFilename.Value,
 		Loc:        req.location,

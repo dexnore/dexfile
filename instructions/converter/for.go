@@ -50,6 +50,7 @@ func parseFor(req parseRequest) (forcmd *CommandFor, err error) {
 	}
 
 	flDelim := req.flags.AddString("delim", "")
+	flTimeout := req.flags.AddString("timeout", "")
 	if err := req.flags.Parse(); err != nil {
 		return nil, err
 	}
@@ -73,9 +74,8 @@ func parseFor(req parseRequest) (forcmd *CommandFor, err error) {
 	}
 
 	switch cmd.(type) {
-	case *RunCommand, *CommandExec:
+	case *RunCommand, *CommandExec, *CommandProcess:
 		forcmd.EXEC = cmd
-		flTimeout := req.flags.AddString("timeout", "")
 		if err := req.flags.Parse(); err != nil {
 			return nil, err
 		}
