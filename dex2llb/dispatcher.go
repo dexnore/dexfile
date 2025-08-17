@@ -696,13 +696,19 @@ func dispatchArg(d *dispatchState, c *converter.ArgCommand, opt *dispatchOpt) er
 			v := opt.buildArgValues[arg.Key]
 			arg.Value = &v
 		} else if hasDefault {
-			env := getEnv(d.state)
-			v, unmatched, err := opt.shlex.ProcessWord(*arg.Value, env)
-			reportUnmatchedVariables(c, d.buildArgs, env, unmatched, opt)
-			if err != nil {
-				return err
+			scopedValue, _  := d.state.Value(context.TODO(), dexfile.ScopedVariable(*arg.Value))
+			if scopedValue != nil && scopedValue.(string) != "" {
+				v := scopedValue.(string)
+				arg.Value = &v
+			} else {
+				env := getEnv(d.state)
+				v, unmatched, err := opt.shlex.ProcessWord(*arg.Value, env)
+				reportUnmatchedVariables(c, d.buildArgs, env, unmatched, opt)
+				if err != nil {
+					return err
+				}
+				arg.Value = &v
 			}
-			arg.Value = &v
 		}
 
 		ai := argInfo{definition: arg, location: c.Location()}

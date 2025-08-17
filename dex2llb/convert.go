@@ -527,7 +527,7 @@ func toDispatchState(ctx context.Context, dt []byte, opt df.ConvertOpt) (_ *disp
 
 									var baseImg *dockerspec.DockerOCIImage
 									baseImgBytes := res.Metadata[fmt.Sprintf("%s/%s", exptypes.ExporterImageBaseConfigKey, pt)]
-									if len(imgBytes) == 0 {
+									if len(baseImgBytes) == 0 {
 										baseImgBytes = res.Metadata[exptypes.ExporterImageBaseConfigKey]
 									}
 									if err := json.Unmarshal(baseImgBytes, baseImg); err != nil {

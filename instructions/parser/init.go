@@ -12,6 +12,7 @@ func init() {
 	dispatch = map[string]func(string, *directives) (*Node, map[string]bool, error){
 		command.ADD:         parseMaybeJSONToList,
 		command.ARG:         parseNameOrNameVal,
+		command.BUILD:		 parseStringsWhitespaceDelimited,
 		command.CMD:         parseMaybeJSON,
 		command.COPY:        parseMaybeJSONToList,
 		command.CTR:         parseStringsWhitespaceDelimited,

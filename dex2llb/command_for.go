@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"regexp"
 
+	"github.com/dexnore/dexfile"
 	"github.com/dexnore/dexfile/instructions/converter"
 	"github.com/dexnore/dexfile/instructions/parser"
 	"github.com/moby/buildkit/frontend/gateway/client"
@@ -33,9 +34,17 @@ func handleForLoop(ctx context.Context, d *dispatchState, cmd converter.CommandF
 	}
 
 	var (
+		ctr client.Container
+		ctrErr error
 		stdout = bytes.NewBuffer(nil)
 		stderr = bytes.NewBuffer(nil)
 	)
+
+	defer func () {
+		if ctrErr := ctr.Release(ctx); ctrErr != nil {
+			err = errors.Join(ctrErr, err)
+		}
+	}()
 
 	ds, dOpt := d.Clone(), opt.Clone()
 	switch exec := cmd.EXEC.(type) {
@@ -77,7 +86,7 @@ func handleForLoop(ctx context.Context, d *dispatchState, cmd converter.CommandF
 		return parser.WithLocation(errors.New("no [FOR ... RUN] statement found"), cmd.Location())
 	}
 
-	ctr, ctrErr := createContainer(ctx, dOpt.solver.Client(), execop, res)
+	ctr, ctrErr = createContainer(ctx, dOpt.solver.Client(), execop, res.Ref)
 	if ctrErr != nil {
 		return parser.WithLocation(ctrErr, cmd.Location())
 	}
@@ -93,11 +102,16 @@ func handleForLoop(ctx context.Context, d *dispatchState, cmd converter.CommandF
 		cmd.Delim = "\n"
 	}
 
+	defaultAs, _ := d.state.Value(ctx, dexfile.ScopedVariable(cmd.As))
+	defer func () {
+		d.state = d.state.WithValue(dexfile.ScopedVariable(cmd.As), defaultAs)
+	}()
 	delim, err := regexp.Compile(cmd.Delim)
 	if err == nil {
 		v := delim.FindAllString(stdout.String(), -1)
-		for _, d := range v {
-			if err := exec(cmd.Commands, d); err != nil {
+		for _, dv := range v {
+			d.state = d.state.WithValue(dexfile.ScopedVariable(cmd.As), dv)
+			if err := exec(cmd.Commands, dv); err != nil {
 				return err
 			}
 		}

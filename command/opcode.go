@@ -34,6 +34,7 @@ const (
 	PROC   = "proc"
 	FUNC = "func"
 	ENDFUNC = "endfunc"
+	BUILD = "build"
 )
 
 var Instructions = map[string]struct{}{
@@ -68,4 +69,5 @@ var Instructions = map[string]struct{}{
 	ENDFUNC:{},
 	FOR: 	{},
 	ENDFOR: {},
+	BUILD: {},
 }

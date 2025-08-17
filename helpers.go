@@ -25,3 +25,7 @@ func (c ClientConfig) Clone() ClientConfig {
 
 	return ret
 }
+
+func ScopedVariable(word string) string {
+	return "scoped-" + word
+}

@@ -5,7 +5,7 @@ package dex2llb
 import (
 	"github.com/pkg/errors"
 
-	instructions "github.com/dexnore/dexfile/converter"
+	instructions "github.com/dexnore/dexfile/instructions/converter"
 	"github.com/moby/buildkit/client/llb"
 	"github.com/moby/buildkit/solver/pb"
 )

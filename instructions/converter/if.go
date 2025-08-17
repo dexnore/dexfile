@@ -91,7 +91,7 @@ func parseIf(req parseRequest) (ifcmd *ConditionIF, err error) {
 	}
 
 	switch cond.(type) {
-	case *RunCommand, *CommandExec, *CommandProcess:
+	case *RunCommand, *CommandExec, *CommandProcess, *CommandBuild:
 		flTimeout := req.flags.AddString("timeout", "")
 		if err := req.flags.Parse(); err != nil {
 			return nil, err

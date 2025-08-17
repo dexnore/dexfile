@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/dexnore/dexfile"
 	"github.com/dexnore/dexfile/instructions/converter"
 	"github.com/dexnore/dexfile/instructions/parser"
 	"github.com/moby/buildkit/client/llb"
@@ -15,14 +16,14 @@ import (
 	"github.com/pkg/errors"
 )
 
-func dispatchCtr(ctx context.Context, d *dispatchState, cmd converter.CommandConatainer, opt dispatchOpt) (err error) {
+func dispatchCtr(ctx context.Context, d *dispatchState, ctr converter.CommandConatainer, opt dispatchOpt) (err error) {
 	st := d.state
-	if cmd.From != "" {
-		index, err := strconv.Atoi(cmd.From)
+	if ctr.From != "" {
+		index, err := strconv.Atoi(ctr.From)
 		if err != nil {
-			stn, ok := opt.allDispatchStates.findStateByName(cmd.From)
+			stn, ok := opt.allDispatchStates.findStateByName(ctr.From)
 			if !ok {
-				st = llb.Image(cmd.From)
+				st = llb.Image(ctr.From)
 			} else {
 				st = stn.state
 			}
@@ -50,15 +51,17 @@ func dispatchCtr(ctx context.Context, d *dispatchState, cmd converter.CommandCon
 		CacheImports: opt.solver.Client().Config().CacheImports,
 	})
 	if err != nil {
-		return parser.WithLocation(err, cmd.Location())
+		return parser.WithLocation(err, ctr.Location())
 	}
 
-	for _, cmd := range cmd.Commands {
+	ctr.Result = res
+	ctr.State = &st
+
+	for _, cmd := range ctr.Commands {
 		switch cmd := cmd.(type) {
 		case *converter.CommandProcess:
-			cmd.Result = res
+			cmd.InContainer = *ctr.Clone()
 			dClone, optClone := d.Clone(), opt.Clone()
-			cmd.FROM = st
 			if err, ok := handleProc(ctx, dClone, cmd, optClone); err != nil {
 				if !ok {
 					return parser.WithLocation(fmt.Errorf("failed to start [CTR] process: %s", strings.Join(cmd.RUN.CmdLine, " ")), cmd.Location())
@@ -73,8 +76,7 @@ func dispatchCtr(ctx context.Context, d *dispatchState, cmd converter.CommandCon
 
 			for _, c := range conds {
 				if c, ok := c.(*converter.CommandProcess); ok {
-					c.Result = res
-					c.FROM = st
+					c.InContainer = *ctr.Clone()
 				}
 			}
 			dc, err := toCommand(cmd, opt.allDispatchStates)
@@ -99,7 +101,15 @@ func dispatchCtr(ctx context.Context, d *dispatchState, cmd converter.CommandCon
 }
 
 func handleProc(ctx context.Context, d *dispatchState, cmd *converter.CommandProcess, opt dispatchOpt) (err error, ctrStarted bool) {
-	if cmd.Result == nil {
+	ctr := cmd.InContainer
+	if cmd.From != "" {
+		fromCtr, ok := cmd.FindContainer(cmd.From)
+		if !ok {
+			return parser.WithLocation(fmt.Errorf("no container found with name: %s", cmd.From), cmd.Location()), false
+		}
+		ctr = *fromCtr.Clone()
+	}
+	if ctr.Result == nil || ctr.State == nil {
 		return fmt.Errorf("[PROC] command not supported outside [CTR] command"), ctrStarted
 	}
 
@@ -109,12 +119,13 @@ func handleProc(ctx context.Context, d *dispatchState, cmd *converter.CommandPro
 	)
 
 	st := d.state.Output()
-	d.state = cmd.FROM
+	d.state = *ctr.State
 	defer func() {
+		*ctr.State = llb.NewState(d.state.Output())
 		d.state = llb.NewState(st)
 		d.state = d.state.
-			AddEnv("STDOUT", stdout.String()).
-			AddEnv("STDERR", stderr.String())
+			WithValue(dexfile.ScopedVariable("STDOUT"), stdout.String()).
+			WithValue(dexfile.ScopedVariable("STDERR"), stderr.String())
 	}()
 	dc, err := toCommand(cmd.RUN, opt.allDispatchStates)
 	if err != nil {
@@ -146,12 +157,18 @@ func handleProc(ctx context.Context, d *dispatchState, cmd *converter.CommandPro
 		return parser.WithLocation(errors.New("no [PROC] statement found"), cmd.Location()), ctrStarted
 	}
 
-	ctr, err := createContainer(ctx, opt.solver.Client(), execop, cmd.Result)
+	gwctr, err := createContainer(ctx, opt.solver.Client(), execop, ctr.Result.Ref)
 	if err != nil {
 		return err, ctrStarted
 	}
 
-	err = startProcess(ctx, ctr, cmd.TimeOut, *execop, func() error {
+	defer func () {
+		if ctrErr := gwctr.Release(ctx); ctrErr != nil {
+			err = fmt.Errorf("%w\n%w", ctrErr, err)
+		}
+	}()
+
+	err = startProcess(ctx, gwctr, cmd.TimeOut, *execop, func() error {
 		return nil
 	}, &nopCloser{stdout}, &nopCloser{stderr})
 	if err != nil {

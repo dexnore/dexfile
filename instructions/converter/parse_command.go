@@ -222,7 +222,6 @@ func parseFrom(req parseRequest) (*Stage, error) {
 	}
 
 	flPlatform := req.flags.AddString("platform", "")
-	flContext := req.flags.AddString("context", "")
 	if err := req.flags.Parse(); err != nil {
 		return nil, err
 	}
@@ -235,7 +234,6 @@ func parseFrom(req parseRequest) (*Stage, error) {
 		SourceCode: code,
 		Commands:   []Command{},
 		Platform:   flPlatform.Value,
-		Context:    flContext.Value,
 		Loc:        req.location,
 		Comment:    getComment(req.comments, stageName),
 	}, nil

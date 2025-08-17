@@ -9,6 +9,7 @@ import (
 	"slices"
 	"time"
 
+	"github.com/dexnore/dexfile"
 	"github.com/dexnore/dexfile/instructions/converter"
 	"github.com/dexnore/dexfile/instructions/parser"
 	"github.com/moby/buildkit/client/llb"
@@ -80,7 +81,7 @@ func (wc *nopCloser) Close() error {
 	return nil
 }
 
-func createContainer(ctx context.Context, c gwclient.Client, execop *execOp, r *gwclient.Result) (gwclient.Container, error) {
+func createContainer(ctx context.Context, c gwclient.Client, execop *execOp, ref gwclient.Reference) (gwclient.Container, error) {
 	if execop == nil {
 		return nil, errors.New("internal error: no RUN instruction found")
 	}
@@ -105,12 +106,12 @@ func createContainer(ctx context.Context, c gwclient.Client, execop *execOp, r *
 
 	ctrReq := gwclient.NewContainerRequest{
 		Mounts: append(
-			convertMounts(execop.Exec.Mounts),
-			gwclient.Mount{
+			[]gwclient.Mount{{
 				Dest:      "/",
 				MountType: pb.MountType_BIND,
-				Ref:       r.Ref,
-			},
+				Ref:       ref,
+			}},
+			convertMounts(execop.Exec.Mounts)...,
 		),
 		Hostname:    execop.Exec.Meta.GetHostname(),
 		NetMode:     execop.Exec.GetNetwork(),
@@ -146,9 +147,6 @@ func startContainer(ctx context.Context, ctr gwclient.Container, execop *pb.Exec
 
 func startProcess(ctx context.Context, ctr gwclient.Container, timeout *time.Duration, execop execOp, handleCond func() error, stdout, stderr io.WriteCloser) (err error) {
 	defer func() {
-		if e := ctr.Release(ctx); e != nil {
-			err = errors.Join(e, err)
-		}
 		if err == nil && handleCond != nil {
 			err = handleCond()
 		}
@@ -188,6 +186,24 @@ func handleIfElse(ctx context.Context, d *dispatchState, cmd converter.Condition
 		conds = append(conds, elseCond.Condition)
 	}
 
+	var (
+		ctr gwclient.Container
+		ctrErr error
+	)
+	defer func () {
+		if ctrErr := ctr.Release(ctx); ctrErr != nil {
+			err = errors.Join(ctrErr, err)
+		}
+	}()
+
+	stdoutVar, stderrVar := dexfile.ScopedVariable("STDOUT"), dexfile.ScopedVariable("STDERR")
+	defaultStdout, _ := d.state.Value(ctx, stdoutVar)
+	defaultStderr, _ :=	d.state.Value(ctx, stderrVar)
+	defer func () {
+		d.state = d.state.WithValue(stdoutVar, defaultStdout).
+			WithValue(stderrVar, defaultStderr)
+	}()
+
 forloop:
 	for i, block := range conds {
 		if block == nil && i > 0 { // else condition (not 'else if')
@@ -201,7 +217,6 @@ forloop:
 			if err != nil {
 				return err
 			}
-			// TODO: dispatchRun causes freeze
 			if err = dispatchRun(ds, cond, dOpt.proxyEnv, dc.sources, dOpt); err != nil {
 				return err
 			}
@@ -258,6 +273,32 @@ forloop:
 			} else {
 				return exec(cmd.ConditionElse[i-1].Commands)
 			}
+		case *converter.CommandBuild:
+			bs, err := dispatchBuild(*cond, opt)
+			if err != nil {
+				return err
+			}
+
+			def, err := bs.state.Marshal(ctx)
+			if err != nil {
+				return err
+			}
+
+			_, err = opt.solver.Client().Solve(ctx, gwclient.SolveRequest{
+				Evaluate:     true,
+				Definition:   def.ToPB(),
+				CacheImports: opt.solver.Client().Config().CacheImports,
+			})
+			if err != nil {
+				errs = errors.Join(parser.WithLocation(err, cond.Location()), errs)
+				continue forloop
+			}
+
+			if i == 0 {
+				return exec(cmd.ConditionIF.Commands)
+			} else {
+				return exec(cmd.ConditionElse[i-1].Commands)
+			}
 		default:
 			return fmt.Errorf("unsupported conditional subcommand: %T", cond)
 		}
@@ -297,7 +338,7 @@ forloop:
 			return parser.WithLocation(err, cmd.Location())
 		}
 
-		ctr, ctrErr := createContainer(ctx, dOpt.solver.Client(), execop, res)
+		ctr, ctrErr = createContainer(ctx, dOpt.solver.Client(), execop, res.Ref)
 		if ctrErr != nil {
 			return parser.WithLocation(ctrErr, cmd.Location())
 		}
@@ -328,12 +369,9 @@ forloop:
 		if i == 0 { // if condition
 			err := startProcess(ctx, ctr, cmd.ConditionIF.TimeOut, *execop, func() error {
 				d.state = d.state.
-					AddEnv("STDOUT", stdout.String()).
-					AddEnv("STDERR", stderr.String())
-				err = exec(cmd.ConditionIF.Commands)
-				// conds[i].STDOUT = stdout.Buffer
-				// conds[i].STDERR = stderr.Buffer
-				return err
+					WithValue(stdoutVar, stdout.String()).
+					WithValue(stderrVar, stderr.String())
+				return exec(cmd.ConditionIF.Commands)
 			}, &nopCloser{stdout}, &nopCloser{stderr})
 			if err != nil {
 				errs = errors.Join(errors.New(stderr.String()), parser.WithLocation(err, block.Location()), errs)
@@ -342,12 +380,9 @@ forloop:
 		} else {
 			err := startProcess(ctx, ctr, cmd.ConditionIF.TimeOut, *execop, func() error {
 				d.state = d.state.
-					AddEnv("STDOUT", stdout.String()).
-					AddEnv("STDERR", stderr.String())
-				err = exec(cmd.ConditionElse[i-1].Commands)
-				// conds[i].STDOUT = stdout.Buffer
-				// conds[i].STDERR = stderr.Buffer
-				return err
+					WithValue(stdoutVar, stdout.String()).
+					WithValue(stderrVar, stderr.String())
+				return exec(cmd.ConditionElse[i-1].Commands)
 			}, &nopCloser{stdout}, &nopCloser{stderr})
 			if err != nil {
 				errs = errors.Join(errors.New(stderr.String()), parser.WithLocation(err, block.Location()), errs)

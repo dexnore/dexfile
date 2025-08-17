@@ -2,10 +2,10 @@ package converter
 
 import (
 	"fmt"
-	"regexp"
+	"slices"
+	"strings"
 	"time"
 
-	"github.com/dexnore/dexfile/instructions/parser"
 	"github.com/moby/buildkit/client/llb"
 	"github.com/moby/buildkit/frontend/gateway/client"
 )
@@ -13,8 +13,11 @@ import (
 type CommandConatainer struct {
 	withNameAndCode
 	From     string
+	as 	string
+	Result      *client.Result
+	State *llb.State
 	Commands []Command
-	Parent   *CommandConatainer
+	parent   *CommandConatainer
 }
 
 type EndContainer struct {
@@ -25,10 +28,29 @@ type CommandProcess struct {
 	withNameAndCode
 	TimeOut     *time.Duration
 	RUN         RunCommand
-	Result      *client.Result
-	FROM        llb.State
-	BaseImage   string
-	InContainer *CommandConatainer
+	From   string
+	InContainer CommandConatainer
+}
+
+func (c *CommandConatainer) Clone() *CommandConatainer {
+	var parent *CommandConatainer
+	if c.parent != nil {
+		parent = c.parent.Clone()
+	}
+
+	var result *client.Result
+	if c.Result != nil {
+		result = c.Result.Clone()
+	}
+	return &CommandConatainer{
+		withNameAndCode: c.withNameAndCode,
+		as: c.as,
+		parent: parent,
+		From: c.From,
+		Result: result,
+		State: c.State,
+		Commands: slices.Clone(c.Commands),
+	}
 }
 
 func (c *CommandConatainer) AddCommand(cmd Command) {
@@ -36,30 +58,50 @@ func (c *CommandConatainer) AddCommand(cmd Command) {
 }
 
 func (c *CommandConatainer) ParentCtr(ctr *CommandConatainer) {
-	c.Parent = ctr
+	c.parent = ctr.Clone()
+}
+
+func (c *CommandConatainer) FindContainer(from string) (ctr *CommandConatainer, ok bool) {
+	if c.as == from {
+		return c, true
+	}
+
+	if c.parent == nil {
+		return nil, false
+	}
+
+	return c.parent.FindContainer(from)
+}
+
+func (c *CommandProcess) FindContainer(from string) (ctr *CommandConatainer, ok bool) {
+	return c.InContainer.FindContainer(from)
 }
 
 func parseCtr(req parseRequest) (ctr *CommandConatainer, err error) {
 	ctr = &CommandConatainer{withNameAndCode: newWithNameAndCode(req)}
+	ctr.as, ctr.From, err = parseCtrName(req.args)
+	return ctr, err
+}
 
-	flFrom := req.flags.AddString("from", "")
-	if err := req.flags.Parse(); err != nil {
-		return nil, err
+func parseCtrName(args []string) (as, from string, err error) {
+	switch {
+	case len(args) == 3 && strings.EqualFold(args[1], "from"):
+		from = strings.ToLower(args[2])
+		if !validStageName.MatchString(from) {
+			return "", "", fmt.Errorf("invalid 'from' for container: %q, name can't start with a number or contain symbols", args[2])
+		}
+	case len(args) != 1:
+		return "", "", fmt.Errorf("FROM requires either one or three arguments")
 	}
 
-	ctr.From = flFrom.Value
-	return ctr, nil
+	return as, from, nil
 }
 
 func parseEndCtr(req parseRequest) (endCtr *EndContainer, err error) {
 	endCtr = &EndContainer{withNameAndCode: newWithNameAndCode(req)}
 	if len(req.args) > 0 {
-		original := regexp.MustCompile(`(?i)^\s*ENDCTR\s*`).ReplaceAllString(req.original, "")
-		for _, heredoc := range req.heredocs {
-			original += "\n" + heredoc.Content + heredoc.Name
-		}
-		if len(original) > 0 {
-			return nil, parser.WithLocation(&UnknownInstructionError{Instruction: original, Line: req.location[0].Start.Line}, endCtr.Location())
+		if s := strings.TrimSpace(strings.Join(req.args, " ")); s != "" {
+			return nil, &UnknownInstructionError{Instruction: s, Line: req.location[0].Start.Line}
 		}
 	}
 
@@ -83,7 +125,7 @@ func parseProc(req parseRequest) (proc *CommandProcess, err error) {
 	if err := req.flags.Parse(); err != nil {
 		return nil, err
 	}
-	proc.BaseImage = flFrom.Value
+	proc.From = flFrom.Value
 	timeout, err := parseOptInterval(flTimeout)
 	if err != nil {
 		return nil, err

@@ -65,10 +65,16 @@ func dispatchExec(ctx context.Context, d *dispatchState, cmd converter.CommandEx
 		return parser.WithLocation(errors.New("no conditional statement found"), cmd.Location())
 	}
 
-	ctr, ctrErr := createContainer(ctx, dOpt.solver.Client(), execop, res)
+	ctr, ctrErr := createContainer(ctx, dOpt.solver.Client(), execop, res.Ref)
 	if ctrErr != nil {
 		return parser.WithLocation(ctrErr, cmd.Location())
 	}
+
+	defer func () {
+		if ctrErr := ctr.Release(ctx); ctrErr != nil {
+			err = fmt.Errorf("%w\n%w", ctrErr, err)
+		}
+	}()
 
 	if execop.Exec != nil && execop.Exec.CdiDevices != nil {
 		return fmt.Errorf("CDI devices are not supported in [EXEC]")
@@ -80,7 +86,6 @@ func dispatchExec(ctx context.Context, d *dispatchState, cmd converter.CommandEx
 	)
 
 	err = startProcess(ctx, ctr, cmd.TimeOut, *execop, func() error {
-		// d.state = d.state.Async(func(ctx context.Context, _ llb.State, llbc *llb.Constraints) (llb.State, error) {
 		p := platforms.DefaultSpec()
 		if ds.platform != nil {
 			p = *ds.platform
@@ -152,8 +157,6 @@ func dispatchExec(ctx context.Context, d *dispatchState, cmd converter.CommandEx
 		}
 
 		d.state = llb.Merge([]llb.State{d.state, s})
-		// return s, nil
-		// })
 		return nil
 	}, &nopCloser{stdout}, &nopCloser{stderr})
 	if err != nil {

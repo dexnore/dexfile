@@ -115,6 +115,8 @@ func ParseInstructionWithLinter(node *parser.Node, lint *linter.Linter) (v any, 
 		return parseFunc(req)
 	case command.ENDFUNC:
 		return parseEndFunc(req)
+	case command.BUILD:
+		return parseBuild(req)
 	}
 	return nil, suggest.WrapError(&UnknownInstructionError{Instruction: node.Value, Line: node.StartLine}, node.Value, allInstructionNames(), false)
 }
@@ -634,7 +636,7 @@ func ParseContainer(ast *parser.Node, lint *linter.Linter) (ctrcmd *CommandConat
 		case *EndContainer: // Encountered an 'endif' keyword
 			return ctrcmd, i + 1, nil // Return, consuming the EndIf instruction (+1)
 		case *CommandProcess:
-			c.InContainer = ctrcmd
+			c.InContainer = *ctrcmd
 			ctrcmd.AddCommand(c)
 		case *ConditionIF:
 			conditionalNode := &parser.Node{Children: ast.Children[i:]}

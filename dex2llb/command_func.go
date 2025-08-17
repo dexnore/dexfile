@@ -3,9 +3,9 @@ package dex2llb
 import (
 	"context"
 	"fmt"
-	"slices"
 	"strings"
 
+	"github.com/dexnore/dexfile"
 	"github.com/dexnore/dexfile/instructions/converter"
 	"github.com/dexnore/dexfile/instructions/parser"
 )
@@ -35,9 +35,21 @@ func handleFunctionCall(ctx context.Context, cmd converter.Function, d *dispatch
 		return fmt.Errorf("unknown function: %q", cmd.FuncName)
 	}
 
-	buildArgs := slices.Clone(d.buildArgs)
-	d.buildArgs = append(d.buildArgs, append(function.Args, cmd.Args...)...)
+	var defaultKVP = make(map[string]any)
+	for _, kvp := range append(function.Args, cmd.Args...) {
+		v, _ := d.state.Value(ctx, dexfile.ScopedVariable(kvp.Key))
+		defaultKVP[dexfile.ScopedVariable(kvp.Key)] = v
+		d.state = d.state.WithValue(dexfile.ScopedVariable(kvp.Key), kvp.ValueString())
+	}
+	defer func () {
+		for _, kvp := range append(function.Args, cmd.Args...) {
+			d.state = d.state.WithValue(dexfile.ScopedVariable(kvp.Key), "")
+		}
 
+		for k, v := range defaultKVP {
+			d.state = d.state.WithValue(dexfile.ScopedVariable(k), v)
+		}
+	}()
 	for _, cmd := range function.Commands {
 		cmd, err := toCommand(cmd, opt.allDispatchStates)
 		if err != nil {
@@ -48,7 +60,6 @@ func handleFunctionCall(ctx context.Context, cmd converter.Function, d *dispatch
 		}
 	}
 
-	d.buildArgs = buildArgs
 	return nil
 }
 
