@@ -17,7 +17,6 @@ import (
 	"time"
 
 	"github.com/containerd/platforms"
-	"github.com/dexnore/dexfile"
 	df "github.com/dexnore/dexfile"
 	config "github.com/dexnore/dexfile/client/config"
 	"github.com/dexnore/dexfile/context/buildcontext"
@@ -301,6 +300,18 @@ func toDispatchState(ctx context.Context, dt []byte, opt df.ConvertOpt) (_ *disp
 	if err != nil {
 		return nil, err
 	}
+	metads := allDispatchStates.states[0]
+	platform := metads.platform
+	if platform == nil {
+		platform = &platformOpt.targetPlatform
+	}
+	metads.state = llb.Image(metads.BaseName(),
+		dfCmd(metads.SourceCode()),
+		llb.Platform(*platform),
+		opt.Config.ImageResolveMode,
+		llb.WithCustomName(prefixCommand(metads, "FROM "+metads.BaseName(), opt.Config.MultiPlatformRequested, platform, emptyEnvs{})),
+		location(opt.SourceMap, metads.Location()),
+	)
 	dOpt := dispatchOpt{
 		allDispatchStates: allDispatchStates,
 		globalArgs:        globalArgs,
@@ -325,6 +336,7 @@ func toDispatchState(ctx context.Context, dt []byte, opt df.ConvertOpt) (_ *disp
 		mainContext:       opt.MainContext,
 		functions:         functions,
 	}
+
 	for i, cmd := range metaCmds {
 		switch cmd := cmd.(type) {
 		case *converter.Stage:
@@ -360,7 +372,7 @@ func toDispatchState(ctx context.Context, dt []byte, opt df.ConvertOpt) (_ *disp
 			if err != nil {
 				return nil, err
 			}
-			err = dispatch(ctx, allDispatchStates.states[0], ic, dOpt)
+			err = dispatch(ctx, metads, ic, dOpt)
 			if err != nil {
 				return nil, err
 			}
@@ -376,31 +388,37 @@ func toDispatchState(ctx context.Context, dt []byte, opt df.ConvertOpt) (_ *disp
 			if err != nil {
 				return nil, err
 			}
-			err = dispatch(ctx, allDispatchStates.states[0], ic, dOpt)
+			err = dispatch(ctx, metads, ic, dOpt)
 			if err != nil {
-				return nil, fmt.Errorf("failed to dispatch meta command %d: %w", i, err)
+				return nil, parser.WithLocation(err, cmd.Location())
 			}
 
-			envGetter := getEnv(allDispatchStates.states[0].state) // ensure envs are initialized
+			envGetter := getEnv(metads.state) // ensure envs are initialized
 			if v, ok := envGetter.Get(ARG_STDOUT); ok {
-				globalArgs = globalArgs.AddOrReplace(ARG_STDOUT, v)
+				globalArgs = globalArgs.AddOrReplace("STDOUT", v)
 			}
 			if v, ok := envGetter.Get(ARG_STDERR); ok {
-				globalArgs = globalArgs.AddOrReplace(ARG_STDERR, v)
+				globalArgs = globalArgs.AddOrReplace("STDERR", v)
 			}
 		default:
 			ic, err := toCommand(cmd, allDispatchStates)
 			if err != nil {
 				return nil, err
 			}
-			err = dispatch(ctx, allDispatchStates.states[0], ic, dOpt)
+			err = dispatch(ctx, metads, ic, dOpt)
 			if err != nil {
-				return nil, fmt.Errorf("failed to dispatch meta command %d: %w", i, err)
+				return nil, parser.WithLocation(err, cmd.Location())
 			}
 		}
 	}
 
-	def, err := allDispatchStates.states[0].state.Marshal(ctx)
+	envGetter := getEnv(metads.state)
+	for _, k := range envGetter.Keys() {
+		v, _ := envGetter.Get(k)
+		globalArgs = globalArgs.AddOrReplace(k, v)
+	}
+
+	def, err := metads.state.Marshal(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -1032,7 +1050,7 @@ func (e *envsFromState) init() {
 
 func (e *envsFromState) Get(key string) (string, bool) {
 	e.once.Do(e.init)
-	if v, err := e.state.Value(context.Background(), dexfile.ScopedVariable(key)); err == nil {
+	if v, err := e.state.Value(context.Background(), df.ScopedVariable(key)); err == nil {
 		if v != nil {
 			return v.(string), true
 		}

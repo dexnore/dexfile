@@ -41,6 +41,9 @@ func handleForLoop(ctx context.Context, d *dispatchState, cmd converter.CommandF
 	)
 
 	defer func() {
+		if ctr == nil {
+			return
+		}
 		if ctrErr := ctr.Release(ctx); ctrErr != nil {
 			err = errors.Join(ctrErr, err)
 		}

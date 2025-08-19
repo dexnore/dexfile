@@ -3,7 +3,6 @@ package converter
 import (
 	"regexp"
 	"strings"
-	"time"
 
 	"github.com/dexnore/dexfile/instructions/parser"
 	"github.com/pkg/errors"
@@ -24,30 +23,21 @@ import (
 // the previous command failed (non-zero exit status), it runs the command
 // specified after `ELSE`. The `ENDIF` command marks the end of the conditional
 // block.
-type ConditionElse struct {
-	withNameAndCode
-	// just ConditionIF fields
-	Condition Command
-	TimeOut   *time.Duration
-	Commands  []Command
-	End       bool
-}
+type ConditionElse ConditionIF
 
-// AddCommand appends a command to the IF block.
-func (c *ConditionElse) AddElse(cmd Command) error {
+func (c *ConditionElse) AddCommand(cmd Command) error {
 	if c.End {
-		return errors.New("cannot add commands to Conditional Else block: the block has already been closed")
+		return errors.New("cannot add commands to Conditional ELSE block: the block has already been closed")
 	}
-
 	c.Commands = append(c.Commands, cmd)
 	return nil
 }
 
-func (c *ConditionElse) EndElse() {
+func (c *ConditionElse) EndBlock() {
 	c.End = true
 }
 
-func (c *ConditionElse) ElseIf() bool {
+func (c *ConditionElse) HasCondition() bool {
 	return c.Condition != nil
 }
 

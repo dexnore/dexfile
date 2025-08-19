@@ -190,8 +190,11 @@ func handleIfElse(ctx context.Context, d *dispatchState, cmd converter.Condition
 		ctrErr error
 	)
 	defer func() {
+		if ctr == nil {
+			return
+		}
 		if ctrErr := ctr.Release(ctx); ctrErr != nil {
-			err = errors.Join(ctrErr, err)
+			err = errors.Join(ctrErr, err, errs)
 		}
 	}()
 
@@ -364,29 +367,25 @@ forloop:
 			stderr = bytes.NewBuffer(nil)
 		)
 
-		if i == 0 { // if condition
-			err := startProcess(ctx, ctr, cmd.ConditionIF.TimeOut, *execop, func() error {
-				d.state = d.state.
-					WithValue(ARG_STDOUT, stdout.String()).
-					WithValue(ARG_STDERR, stderr.String())
-				return exec(cmd.ConditionIF.Commands)
-			}, &nopCloser{stdout}, &nopCloser{stderr})
-			if err != nil {
-				errs = errors.Join(errors.New(stderr.String()), parser.WithLocation(err, block.Location()), errs)
-				continue forloop
-			}
+		var timeout *time.Duration
+		var conditionalCommands []converter.Command
+		if i == 0 {
+			timeout, conditionalCommands = cmd.ConditionIF.TimeOut, cmd.ConditionIF.Commands
 		} else {
-			err := startProcess(ctx, ctr, cmd.ConditionElse[i-1].TimeOut, *execop, func() error {
-				d.state = d.state.
-					WithValue(ARG_STDOUT, stdout.String()).
-					WithValue(ARG_STDERR, stderr.String())
-				return exec(cmd.ConditionElse[i-1].Commands)
-			}, &nopCloser{stdout}, &nopCloser{stderr})
-			if err != nil {
-				errs = errors.Join(errors.New(stderr.String()), parser.WithLocation(err, block.Location()), errs)
-				continue forloop
-			}
+			timeout, conditionalCommands = cmd.ConditionElse[i-1].TimeOut, cmd.ConditionElse[i-1].Commands
 		}
+
+		err = startProcess(ctx, ctr, timeout, *execop, func() error {
+			d.state = d.state.
+				WithValue(ARG_STDOUT, stdout.String()).
+				WithValue(ARG_STDERR, stderr.String())
+			return exec(conditionalCommands)
+		}, &nopCloser{stdout}, &nopCloser{stderr})
+		if err != nil {
+			errs = errors.Join(errors.New(stderr.String()), parser.WithLocation(err, block.Location()), errs)
+			continue forloop
+		}
+
 		return nil
 	}
 

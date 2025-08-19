@@ -13,8 +13,8 @@ type CommandBuild struct {
 
 func parseBuild(req parseRequest) (cmdBuild *CommandBuild, err error) {
 	cmdBuild = &CommandBuild{withNameAndCode: newWithNameAndCode(req)}
-	if len(req.args) > 1 {
-		return nil, fmt.Errorf("BUILD requires at least one argument")
+	if len(req.args) != 1 {
+		return nil, fmt.Errorf("BUILD requires single argument")
 	}
 
 	cmdBuild.Stage = req.args[0]

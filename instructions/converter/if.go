@@ -32,7 +32,7 @@ type ConditionIF struct {
 	End       bool
 }
 
-func (c *ConditionIF) AddIF(cmd Command) error {
+func (c *ConditionIF) AddCommand(cmd Command) error {
 	if c.End {
 		return errors.New("cannot add commands to Conditional IF block: the block has already been closed")
 	}
@@ -40,7 +40,7 @@ func (c *ConditionIF) AddIF(cmd Command) error {
 	return nil
 }
 
-func (c *ConditionIF) EndIF() {
+func (c *ConditionIF) EndBlock() {
 	c.End = true
 }
 

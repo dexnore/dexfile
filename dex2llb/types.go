@@ -1,6 +1,7 @@
 package dex2llb
 
 import (
+	"context"
 	"maps"
 	"slices"
 	"time"
@@ -117,11 +118,17 @@ func (ds dispatchState) Clone() *dispatchState {
 		platform = &p
 	}
 
+	st := ds.state
+	dir, err := st.GetDir(context.TODO())
+	if err != nil || dir == "" {
+		st = st.Dir("/")
+	}
+
 	return &dispatchState{
 		dispatched:     ds.dispatched,
 		base:           base,
 		stageName:      ds.stageName,
-		state:          ds.state,
+		state:          st,
 		outline:        ds.outline.clone(),
 		ctxPaths:       maps.Clone(ds.ctxPaths),
 		stage:          ds.stage,

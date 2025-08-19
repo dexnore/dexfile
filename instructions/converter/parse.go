@@ -362,7 +362,7 @@ func ParseConditional(ast *parser.Node, lint *linter.Linter) (cond *ConditionIfE
 			}
 
 			if inElse {
-				if err := currentElse.AddElse(nestedCond); err != nil {
+				if err := currentElse.AddCommand(nestedCond); err != nil {
 					return nil, i, parser.WithLocation(err, n.Location())
 				}
 			} else {
@@ -370,7 +370,7 @@ func ParseConditional(ast *parser.Node, lint *linter.Linter) (cond *ConditionIfE
 				if cond.ConditionIF.End {
 					return nil, i, parser.WithLocation(errors.Errorf("internal error: cannot add nested IF to a closed IF block"), n.Location())
 				}
-				if err := cond.AddIF(nestedCond); err != nil {
+				if err := cond.AddCommand(nestedCond); err != nil {
 					return nil, i, parser.WithLocation(err, n.Location())
 				}
 			}
@@ -380,7 +380,7 @@ func ParseConditional(ast *parser.Node, lint *linter.Linter) (cond *ConditionIfE
 			// Close the previous 'else' block if one was open
 			if inElse && currentElse != nil {
 				if !currentElse.End { // Ensure it's not already ended
-					currentElse.EndElse()
+					currentElse.EndBlock()
 				} else {
 					return nil, i, parser.WithLocation(errors.Errorf("conditional block error: inline else blocks are self closing"), n.Location())
 				}
@@ -388,7 +388,7 @@ func ParseConditional(ast *parser.Node, lint *linter.Linter) (cond *ConditionIfE
 
 			// Mark the main IF block as closed when the first ELSE is encountered.
 			if !cond.ConditionIF.End {
-				cond.EndIF()
+				cond.EndBlock()
 			}
 
 			// Initialize a new currentElse block
@@ -399,13 +399,13 @@ func ParseConditional(ast *parser.Node, lint *linter.Linter) (cond *ConditionIfE
 			// Close the current 'else' block if one was open
 			if inElse && currentElse != nil {
 				if !currentElse.End { // Ensure it's not already ended
-					currentElse.EndElse()
+					currentElse.EndBlock()
 				} else {
 					return nil, i, parser.WithLocation(errors.Errorf("conditional block error: unable to close 'else' block while parsing 'endif'"), n.Location())
 				}
 			} else { // This means EndIf is for the main IF block
 				if !cond.ConditionIF.End { // Ensure it's not already ended
-					cond.EndIF()
+					cond.EndBlock()
 				} else {
 					return nil, i, parser.WithLocation(errors.Errorf("conditional block error: unable to close 'if' block while parsing 'endif'"), n.Location())
 				}
@@ -422,7 +422,7 @@ func ParseConditional(ast *parser.Node, lint *linter.Linter) (cond *ConditionIfE
 				if currentElse == nil {
 					return nil, i, parser.WithLocation(errors.Errorf("parser error: conditional block error: 'else' block not properly initialized before command instruction"), n.Location())
 				}
-				if err := currentElse.AddElse(ctrcmd); err != nil {
+				if err := currentElse.AddCommand(ctrcmd); err != nil {
 					return nil, i, parser.WithLocation(err, n.Location())
 				}
 			} else {
@@ -430,7 +430,7 @@ func ParseConditional(ast *parser.Node, lint *linter.Linter) (cond *ConditionIfE
 				if cond.ConditionIF.End {
 					return nil, i, parser.WithLocation(errors.Errorf("conditional block error: cannot add command to a closed 'if' block"), n.Location())
 				}
-				if err := cond.AddIF(ctrcmd); err != nil {
+				if err := cond.AddCommand(ctrcmd); err != nil {
 					return nil, i, parser.WithLocation(err, n.Location())
 				}
 			}
@@ -446,7 +446,7 @@ func ParseConditional(ast *parser.Node, lint *linter.Linter) (cond *ConditionIfE
 				if currentElse == nil {
 					return nil, i, parser.WithLocation(errors.Errorf("parser error: conditional block error: 'else' block not properly initialized before command instruction"), n.Location())
 				}
-				if err := currentElse.AddElse(forcmd); err != nil {
+				if err := currentElse.AddCommand(forcmd); err != nil {
 					return nil, i, parser.WithLocation(err, n.Location())
 				}
 			} else {
@@ -454,7 +454,7 @@ func ParseConditional(ast *parser.Node, lint *linter.Linter) (cond *ConditionIfE
 				if cond.ConditionIF.End {
 					return nil, i, parser.WithLocation(errors.Errorf("conditional block error: cannot add command to a closed 'if' block"), n.Location())
 				}
-				if err := cond.AddIF(forcmd); err != nil {
+				if err := cond.AddCommand(forcmd); err != nil {
 					return nil, i, parser.WithLocation(err, n.Location())
 				}
 			}
@@ -470,7 +470,7 @@ func ParseConditional(ast *parser.Node, lint *linter.Linter) (cond *ConditionIfE
 				if currentElse == nil {
 					return nil, i, parser.WithLocation(errors.Errorf("parser error: conditional block error: 'else' block not properly initialized before command instruction"), n.Location())
 				}
-				if err := currentElse.AddElse(fun); err != nil {
+				if err := currentElse.AddCommand(fun); err != nil {
 					return nil, i, parser.WithLocation(err, n.Location())
 				}
 			} else {
@@ -478,7 +478,7 @@ func ParseConditional(ast *parser.Node, lint *linter.Linter) (cond *ConditionIfE
 				if cond.ConditionIF.End {
 					return nil, i, parser.WithLocation(errors.Errorf("conditional block error: cannot add command to a closed 'if' block"), n.Location())
 				}
-				if err := cond.AddIF(fun); err != nil {
+				if err := cond.AddCommand(fun); err != nil {
 					return nil, i, parser.WithLocation(err, n.Location())
 				}
 			}
@@ -489,7 +489,7 @@ func ParseConditional(ast *parser.Node, lint *linter.Linter) (cond *ConditionIfE
 				if currentElse == nil {
 					return nil, i, parser.WithLocation(errors.Errorf("parser error: conditional block error: 'else' block not properly initialized before command instruction"), n.Location())
 				}
-				if err := currentElse.AddElse(c); err != nil {
+				if err := currentElse.AddCommand(c); err != nil {
 					return nil, i, parser.WithLocation(err, n.Location())
 				}
 			} else {
@@ -497,7 +497,7 @@ func ParseConditional(ast *parser.Node, lint *linter.Linter) (cond *ConditionIfE
 				if cond.ConditionIF.End {
 					return nil, i, parser.WithLocation(errors.Errorf("conditional block error: cannot add command to a closed 'if' block"), n.Location())
 				}
-				if err := cond.AddIF(c); err != nil {
+				if err := cond.AddCommand(c); err != nil {
 					return nil, i, parser.WithLocation(err, n.Location())
 				}
 			}
