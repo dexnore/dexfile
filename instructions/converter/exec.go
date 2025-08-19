@@ -10,7 +10,7 @@ type CommandExec struct {
 
 func parseExec(req parseRequest) (exec *CommandExec, err error) {
 	exec = &CommandExec{withNameAndCode: newWithNameAndCode(req)}
-	
+
 	flTimeout := req.flags.AddString("timeout", "")
 	exec.RUN, err = parseRun(req)
 	if err != nil {

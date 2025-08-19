@@ -8,8 +8,8 @@ import (
 type Function struct {
 	FuncName string
 	Commands []Command
-	Args []KeyValuePairOptional
-	Action *string
+	Args     []KeyValuePairOptional
+	Action   *string
 	withNameAndCode
 }
 
@@ -53,13 +53,13 @@ func parseFunc(req parseRequest) (fun *Function, err error) {
 		key, value, ok := strings.Cut(arg, "=")
 		if ok {
 			fun.AddArg(KeyValuePairOptional{
-				Key: key,
+				Key:   key,
 				Value: &value,
 			})
 		} else {
 			True := "true"
 			fun.AddArg(KeyValuePairOptional{
-				Key: key,
+				Key:   key,
 				Value: &True,
 			})
 		}

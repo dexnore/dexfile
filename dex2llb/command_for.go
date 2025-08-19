@@ -34,13 +34,13 @@ func handleForLoop(ctx context.Context, d *dispatchState, cmd converter.CommandF
 	}
 
 	var (
-		ctr client.Container
+		ctr    client.Container
 		ctrErr error
 		stdout = bytes.NewBuffer(nil)
 		stderr = bytes.NewBuffer(nil)
 	)
 
-	defer func () {
+	defer func() {
 		if ctrErr := ctr.Release(ctx); ctrErr != nil {
 			err = errors.Join(ctrErr, err)
 		}
@@ -103,7 +103,7 @@ func handleForLoop(ctx context.Context, d *dispatchState, cmd converter.CommandF
 	}
 
 	defaultAs, _ := d.state.Value(ctx, dexfile.ScopedVariable(cmd.As))
-	defer func () {
+	defer func() {
 		d.state = d.state.WithValue(dexfile.ScopedVariable(cmd.As), defaultAs)
 	}()
 	delim, err := regexp.Compile(cmd.Delim)

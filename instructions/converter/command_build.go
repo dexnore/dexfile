@@ -8,7 +8,7 @@ import (
 type CommandBuild struct {
 	withNameAndCode
 	Stage string
-	Args []KeyValuePair
+	Args  []KeyValuePair
 }
 
 func parseBuild(req parseRequest) (cmdBuild *CommandBuild, err error) {
@@ -31,12 +31,12 @@ func parseBuild(req parseRequest) (cmdBuild *CommandBuild, err error) {
 		key, value, ok := strings.Cut(arg, "=")
 		if ok {
 			cmdBuild.Args = append(cmdBuild.Args, KeyValuePair{
-				Key: key,
+				Key:   key,
 				Value: value,
 			})
 		} else {
 			cmdBuild.Args = append(cmdBuild.Args, KeyValuePair{
-				Key: key,
+				Key:   key,
 				Value: "true",
 			})
 		}

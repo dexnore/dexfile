@@ -16,6 +16,11 @@ import (
 	"github.com/pkg/errors"
 )
 
+var (
+	ARG_STDOUT = dexfile.ScopedVariable("STDOUT")
+	ARG_STDERR = dexfile.ScopedVariable("STDERR")
+)
+
 func dispatchCtr(ctx context.Context, d *dispatchState, ctr converter.CommandConatainer, opt dispatchOpt) (err error) {
 	st := d.state
 	if ctr.From != "" {
@@ -68,6 +73,9 @@ func dispatchCtr(ctx context.Context, d *dispatchState, ctr converter.CommandCon
 				}
 				return parser.WithLocation(err, cmd.Location())
 			}
+			stdout, _ := dClone.state.Value(ctx, ARG_STDOUT)
+			stderr, _ := dClone.state.Value(ctx, ARG_STDERR)
+			d.state = d.state.WithValue(ARG_STDOUT, stdout).WithValue(ARG_STDERR, stderr)
 		case *converter.ConditionIfElse:
 			conds := []converter.Command{cmd.ConditionIF.Condition}
 			for _, elseCond := range cmd.ConditionElse {
@@ -118,14 +126,13 @@ func handleProc(ctx context.Context, d *dispatchState, cmd *converter.CommandPro
 		stderr = bytes.NewBuffer(nil)
 	)
 
-	st := d.state.Output()
+	st := d.state
 	d.state = *ctr.State
 	defer func() {
 		*ctr.State = llb.NewState(d.state.Output())
-		d.state = llb.NewState(st)
-		d.state = d.state.
-			WithValue(dexfile.ScopedVariable("STDOUT"), stdout.String()).
-			WithValue(dexfile.ScopedVariable("STDERR"), stderr.String())
+		d.state = st.
+			WithValue(ARG_STDOUT, stdout.String()).
+			WithValue(ARG_STDERR, stderr.String())
 	}()
 	dc, err := toCommand(cmd.RUN, opt.allDispatchStates)
 	if err != nil {
@@ -162,7 +169,7 @@ func handleProc(ctx context.Context, d *dispatchState, cmd *converter.CommandPro
 		return err, ctrStarted
 	}
 
-	defer func () {
+	defer func() {
 		if ctrErr := gwctr.Release(ctx); ctrErr != nil {
 			err = fmt.Errorf("%w\n%w", ctrErr, err)
 		}

@@ -6,7 +6,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/dexnore/dexfile"
 	"github.com/dexnore/dexfile/instructions/converter"
 	"github.com/dexnore/dexfile/instructions/parser"
 	"github.com/moby/buildkit/frontend/dockerfile/shell"
@@ -23,10 +22,6 @@ func dispatch(ctx context.Context, d *dispatchState, cmd command, opt dispatchOp
 	_, isArg := cmd.Command.(*converter.ArgCommand)
 	if ex, ok := cmd.Command.(converter.SupportsSingleWordExpansion); ok && !isArg {
 		err := ex.Expand(func(word string) (string, error) {
-			scopedValue, _  := d.state.Value(ctx, dexfile.ScopedVariable(word))
-			if scopedValue != nil && scopedValue.(string) != "" {
-				return scopedValue.(string), nil
-			}
 			env := getEnv(d.state)
 			newword, unmatched, err := opt.shlex.ProcessWord(word, env)
 			reportUnmatchedVariables(cmd, d.buildArgs, env, unmatched, &opt)
@@ -38,10 +33,6 @@ func dispatch(ctx context.Context, d *dispatchState, cmd command, opt dispatchOp
 	}
 	if ex, ok := cmd.Command.(converter.SupportsSingleWordExpansionRaw); ok {
 		err := ex.ExpandRaw(func(word string) (string, error) {
-			scopedValue, _  := d.state.Value(ctx, dexfile.ScopedVariable(word))
-			if scopedValue != nil && scopedValue.(string) != "" {
-				return scopedValue.(string), nil
-			}
 			lex := shell.NewLex('\\')
 			lex.SkipProcessQuotes = true
 			env := getEnv(d.state)

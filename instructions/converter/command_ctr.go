@@ -13,9 +13,9 @@ import (
 type CommandConatainer struct {
 	withNameAndCode
 	From     string
-	as 	string
-	Result      *client.Result
-	State *llb.State
+	as       string
+	Result   *client.Result
+	State    *llb.State
 	Commands []Command
 	parent   *CommandConatainer
 }
@@ -28,7 +28,7 @@ type CommandProcess struct {
 	withNameAndCode
 	TimeOut     *time.Duration
 	RUN         RunCommand
-	From   string
+	From        string
 	InContainer CommandConatainer
 }
 
@@ -44,12 +44,12 @@ func (c *CommandConatainer) Clone() *CommandConatainer {
 	}
 	return &CommandConatainer{
 		withNameAndCode: c.withNameAndCode,
-		as: c.as,
-		parent: parent,
-		From: c.From,
-		Result: result,
-		State: c.State,
-		Commands: slices.Clone(c.Commands),
+		as:              c.as,
+		parent:          parent,
+		From:            c.From,
+		Result:          result,
+		State:           c.State,
+		Commands:        slices.Clone(c.Commands),
 	}
 }
 

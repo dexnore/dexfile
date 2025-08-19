@@ -11,7 +11,7 @@ import (
 )
 
 func dispatchFunction(ctx context.Context, d *dispatchState, cmd converter.Function, opt dispatchOpt) (err error) {
-	defer func () {
+	defer func() {
 		if err != nil {
 			err = parser.WithLocation(err, cmd.Location())
 		}
@@ -29,7 +29,7 @@ func dispatchFunction(ctx context.Context, d *dispatchState, cmd converter.Funct
 func handleFunctionCall(ctx context.Context, cmd converter.Function, d *dispatchState, opt dispatchOpt) error {
 	var (
 		function converter.Function
-		ok bool
+		ok       bool
 	)
 	if function, ok = opt.functions[cmd.FuncName]; !ok {
 		return fmt.Errorf("unknown function: %q", cmd.FuncName)
@@ -41,7 +41,7 @@ func handleFunctionCall(ctx context.Context, cmd converter.Function, d *dispatch
 		defaultKVP[dexfile.ScopedVariable(kvp.Key)] = v
 		d.state = d.state.WithValue(dexfile.ScopedVariable(kvp.Key), kvp.ValueString())
 	}
-	defer func () {
+	defer func() {
 		for _, kvp := range append(function.Args, cmd.Args...) {
 			d.state = d.state.WithValue(dexfile.ScopedVariable(kvp.Key), "")
 		}

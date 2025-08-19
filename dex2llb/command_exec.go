@@ -27,7 +27,7 @@ var (
 )
 
 func dispatchExec(ctx context.Context, d *dispatchState, cmd converter.CommandExec, res *client.Result, opt dispatchOpt) (err error) {
-	defer func () {
+	defer func() {
 		if err != nil {
 			err = parser.WithLocation(err, cmd.Location())
 		}
@@ -70,7 +70,7 @@ func dispatchExec(ctx context.Context, d *dispatchState, cmd converter.CommandEx
 		return parser.WithLocation(ctrErr, cmd.Location())
 	}
 
-	defer func () {
+	defer func() {
 		if ctrErr := ctr.Release(ctx); ctrErr != nil {
 			err = fmt.Errorf("%w\n%w", ctrErr, err)
 		}

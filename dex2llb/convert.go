@@ -17,12 +17,13 @@ import (
 	"time"
 
 	"github.com/containerd/platforms"
+	"github.com/dexnore/dexfile"
 	df "github.com/dexnore/dexfile"
 	config "github.com/dexnore/dexfile/client/config"
 	"github.com/dexnore/dexfile/context/buildcontext"
 	dexcontext "github.com/dexnore/dexfile/context/dexfile"
 	"github.com/dexnore/dexfile/context/maincontext"
-	instructions "github.com/dexnore/dexfile/instructions/converter"
+	"github.com/dexnore/dexfile/instructions/converter"
 	"github.com/dexnore/dexfile/instructions/parser"
 	"github.com/dexnore/dexfile/sbom"
 	"github.com/distribution/reference"
@@ -32,6 +33,7 @@ import (
 	"github.com/moby/buildkit/exporter/containerimage/exptypes"
 	"github.com/moby/buildkit/frontend/dockerfile/linter"
 	"github.com/moby/buildkit/frontend/dockerfile/shell"
+	"github.com/moby/buildkit/frontend/gateway/client"
 	"github.com/moby/buildkit/frontend/subrequests/lint"
 	"github.com/moby/buildkit/frontend/subrequests/outline"
 	"github.com/moby/buildkit/frontend/subrequests/targets"
@@ -134,7 +136,7 @@ func ListTargets(ctx context.Context, dt []byte) (*targets.List, error) {
 		return nil, err
 	}
 
-	stages, _, err := instructions.Parse(dexfile.AST, nil)
+	stages, _, err := converter.Parse(dexfile.AST, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -145,7 +147,7 @@ func ListTargets(ctx context.Context, dt []byte) (*targets.List, error) {
 
 	for i, s := range stages {
 		switch s := s.(type) {
-		case *instructions.Stage:
+		case *converter.Stage:
 			t := targets.Target{
 				Name:        s.StageName,
 				Description: s.Comment,
@@ -155,7 +157,7 @@ func ListTargets(ctx context.Context, dt []byte) (*targets.List, error) {
 				Location:    toSourceLocation(s.Location()),
 			}
 			l.Targets = append(l.Targets, t)
-		case *instructions.ImportCommand:
+		case *converter.ImportCommand:
 			t := targets.Target{
 				Name:        s.StageName,
 				Description: s.Comment,
@@ -272,9 +274,9 @@ func toDispatchState(ctx context.Context, dt []byte, opt df.ConvertOpt) (_ *disp
 	targetName := opt.Config.Target
 	if targetName == "" {
 		switch st := stages[len(stages)-1].(type) {
-		case *instructions.Stage:
+		case *converter.Stage:
 			targetName = st.StageName
-		case *instructions.ImportCommand:
+		case *converter.ImportCommand:
 			targetName = st.StageName
 		default:
 			return nil, errors.Errorf("unknown stage type %T", st)
@@ -284,42 +286,132 @@ func toDispatchState(ctx context.Context, dt []byte, opt df.ConvertOpt) (_ *disp
 	shlex := shell.NewLex(dexfile.EscapeToken)
 	outline := newOutlineCapture()
 	allDispatchStates := newDispatchStates()
-	argCmds := make([]instructions.ArgCommand, 0)
-	var metaState = llb.Image(metaStageName)
-	var functions = make(map[string]instructions.Function, 0)
+	argCmds := make([]converter.ArgCommand, 0)
+	var functions = make(map[string]converter.Function, 0)
+	globalArgs, outline, err = expandAndAddDispatchState(0, converter.Stage{StageName: "meta-stage", BaseName: metaStageName}, expandStageOpt{
+		globalArgs:        globalArgs,
+		outline:           outline,
+		lint:              lint,
+		shlex:             shlex,
+		opt:               opt,
+		allDispatchStates: allDispatchStates,
+		namedContext:      namedContext,
+		stageName:         "meta-stage",
+	})
+	if err != nil {
+		return nil, err
+	}
+	dOpt := dispatchOpt{
+		allDispatchStates: allDispatchStates,
+		globalArgs:        globalArgs,
+		buildArgValues:    opt.Config.BuildArgs,
+		shlex:             shlex,
+		buildContext:      llb.Scratch(), // context should not be accessible
+		proxyEnv:          proxyEnv,
+		cacheIDNamespace:  opt.Config.CacheIDNamespace,
+		buildPlatforms:    platformOpt.buildPlatforms,
+		targetPlatform:    platformOpt.targetPlatform,
+		extraHosts:        opt.Config.ExtraHosts,
+		shmSize:           opt.Config.ShmSize,
+		ulimit:            opt.Config.Ulimits,
+		devices:           opt.Config.Devices,
+		cgroupParent:      opt.Config.CgroupParent,
+		llbCaps:           opt.LLBCaps,
+		sourceMap:         opt.SourceMap,
+		lint:              lint,
+		dexnoreMatcher:    nil,
+		solver:            opt.Solver,
+		buildClient:       opt.BC,
+		mainContext:       opt.MainContext,
+		functions:         functions,
+	}
 	for i, cmd := range metaCmds {
-		var metaArgs = make([]instructions.ArgCommand, 0)
-		var fun = make([]instructions.Function, 0)
-		metaArgs, fun, globalArgs, outline, metaState, err = resolveMetaCmds(cmd, argCmds, globalArgs, outline, metaState, metaresolverOpt{
-			i:                 i,
-			shlex:             shlex,
-			options:           opt,
-			pOpt:              *platformOpt,
-			lint:              lint,
-			proxy:             proxyEnv,
-			stage:             instructions.Stage{BaseName: metaStageName},
-			allDispatchStates: allDispatchStates,
-			namedContext:      namedContext,
-			baseContext:       baseContext,
-		})
-		if err != nil {
-			return nil, err
-		}
-
-		for _, f := range fun {
-			if _, ok := functions[f.FuncName]; ok {
-				return nil, fmt.Errorf("function redeclared: %q", f.FuncName)
+		switch cmd := cmd.(type) {
+		case *converter.Stage:
+			globalArgs, outline, err = expandAndAddDispatchState(i, *cmd, expandStageOpt{
+				globalArgs:        globalArgs,
+				outline:           outline,
+				lint:              lint,
+				shlex:             shlex,
+				opt:               opt,
+				allDispatchStates: allDispatchStates,
+				namedContext:      namedContext,
+				stageName:         "meta",
+			})
+			if err != nil {
+				return nil, err
 			}
-			functions[f.FuncName] = f
-		}
+		case *converter.ImportCommand:
+			globalArgs, outline, err = expandImportAndAddDispatchState(i, *cmd, expandImportOpt{
+				globalArgs:        globalArgs,
+				outline:           outline,
+				lint:              lint,
+				shlex:             shlex,
+				options:           opt,
+				allDispatchStates: allDispatchStates,
+				namedContext:      baseContext,
+				stageName:         "meta",
+			})
+			if err != nil {
+				return nil, err
+			}
+		case *converter.ArgCommand:
+			ic, err := toCommand(cmd, allDispatchStates)
+			if err != nil {
+				return nil, err
+			}
+			err = dispatch(ctx, allDispatchStates.states[0], ic, dOpt)
+			if err != nil {
+				return nil, err
+			}
+			globalArgs, outline.allArgs, err = buildMetaArgs(globalArgs, shlex, []converter.ArgCommand{*cmd}, opt.Config.BuildArgs)
+			if err != nil {
+				return nil, err
+			}
+			argCmds = append(argCmds, *cmd)
+		case *converter.ConditionIF, *converter.ConditionElse, *converter.EndContainer, *converter.EndFunction, *converter.EndIf:
+			return nil, fmt.Errorf("unsupported command %T in meta stage", cmd)
+		case *converter.ConditionIfElse:
+			ic, err := toCommand(cmd, allDispatchStates)
+			if err != nil {
+				return nil, err
+			}
+			err = dispatch(ctx, allDispatchStates.states[0], ic, dOpt)
+			if err != nil {
+				return nil, fmt.Errorf("failed to dispatch meta command %d: %w", i, err)
+			}
 
-		argCmds = append(argCmds, metaArgs...)
-		// Rebuild the arguments using the provided build arguments
-		// for the remainder of the build.
-		globalArgs, outline.allArgs, err = buildMetaArgs(globalArgs, shlex, argCmds, opt.Config.BuildArgs)
-		if err != nil {
-			return nil, err
+			envGetter := getEnv(allDispatchStates.states[0].state) // ensure envs are initialized
+			if v, ok := envGetter.Get(ARG_STDOUT); ok {
+				globalArgs = globalArgs.AddOrReplace(ARG_STDOUT, v)
+			}
+			if v, ok := envGetter.Get(ARG_STDERR); ok {
+				globalArgs = globalArgs.AddOrReplace(ARG_STDERR, v)
+			}
+		default:
+			ic, err := toCommand(cmd, allDispatchStates)
+			if err != nil {
+				return nil, err
+			}
+			err = dispatch(ctx, allDispatchStates.states[0], ic, dOpt)
+			if err != nil {
+				return nil, fmt.Errorf("failed to dispatch meta command %d: %w", i, err)
+			}
 		}
+	}
+
+	def, err := allDispatchStates.states[0].state.Marshal(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	_, err = opt.Client.Solve(ctx, client.SolveRequest{
+		Evaluate: true,
+		Definition: def.ToPB(),
+		CacheImports: opt.Config.CacheImports,
+	})
+	if err != nil {
+		return nil, err
 	}
 
 	validateStageNames(stages, lint)
@@ -332,7 +424,7 @@ func toDispatchState(ctx context.Context, dt []byte, opt df.ConvertOpt) (_ *disp
 	// set base state for every image
 	for i, st := range stages {
 		switch st := st.(type) {
-		case *instructions.Stage:
+		case *converter.Stage:
 			globalArgs, outline, err = expandAndAddDispatchState(i, *st, expandStageOpt{
 				globalArgs:        globalArgs,
 				outline:           outline,
@@ -346,7 +438,7 @@ func toDispatchState(ctx context.Context, dt []byte, opt df.ConvertOpt) (_ *disp
 			if err != nil {
 				return nil, err
 			}
-		case *instructions.ImportCommand:
+		case *converter.ImportCommand:
 			globalArgs, outline, err = expandImportAndAddDispatchState(i, *st, expandImportOpt{
 				globalArgs:        globalArgs,
 				outline:           outline,
@@ -663,7 +755,7 @@ func toDispatchState(ctx context.Context, dt []byte, opt df.ConvertOpt) (_ *disp
 			onbuilds := slices.Clone(d.image.Config.OnBuild)
 			if d.base != nil && !d.onBuildInit {
 				for _, cmd := range d.base.commands {
-					if obCmd, ok := cmd.Command.(*instructions.OnbuildCommand); ok {
+					if obCmd, ok := cmd.Command.(*converter.OnbuildCommand); ok {
 						onbuilds = append(onbuilds, obCmd.Expression)
 					}
 				}
@@ -737,12 +829,12 @@ func toDispatchState(ctx context.Context, dt []byte, opt df.ConvertOpt) (_ *disp
 			d.state = d.state.Hostname(opt.Config.Hostname)
 		}
 		if d.image.Config.WorkingDir != "" {
-			if err = dispatchWorkdir(d, &instructions.WorkdirCommand{Path: d.image.Config.WorkingDir}, false, nil); err != nil {
+			if err = dispatchWorkdir(d, &converter.WorkdirCommand{Path: d.image.Config.WorkingDir}, false, nil); err != nil {
 				return nil, parser.WithLocation(err, d.Location())
 			}
 		}
 		if d.image.Config.User != "" {
-			if err = dispatchUser(d, &instructions.UserCommand{User: d.image.Config.User}, false); err != nil {
+			if err = dispatchUser(d, &converter.UserCommand{User: d.image.Config.User}, false); err != nil {
 				return nil, parser.WithLocation(err, d.Location())
 			}
 		}
@@ -769,9 +861,9 @@ func toDispatchState(ctx context.Context, dt []byte, opt df.ConvertOpt) (_ *disp
 			lint:              lint,
 			dexnoreMatcher:    dexnoreMatcher,
 			solver:            opt.Solver,
-			buildClient: opt.BC,
-			mainContext: opt.MainContext,
-			functions: functions,
+			buildClient:       opt.BC,
+			mainContext:       opt.MainContext,
+			functions:         functions,
 		}
 
 		d.opt = opt
@@ -863,9 +955,9 @@ func toDispatchState(ctx context.Context, dt []byte, opt df.ConvertOpt) (_ *disp
 	return target, nil
 }
 
-func toCommand(ic instructions.Command, allDispatchStates *dispatchStates) (command, error) {
+func toCommand(ic converter.Command, allDispatchStates *dispatchStates) (command, error) {
 	cmd := command{Command: ic}
-	if c, ok := ic.(*instructions.CopyCommand); ok {
+	if c, ok := ic.(*converter.CopyCommand); ok {
 		if c.From != "" {
 			var stn *dispatchState
 			index, err := strconv.Atoi(c.From)
@@ -873,8 +965,8 @@ func toCommand(ic instructions.Command, allDispatchStates *dispatchStates) (comm
 				stn, ok = allDispatchStates.findStateByName(c.From)
 				if !ok {
 					stn = &dispatchState{
-						stage:        instructions.Stage{BaseName: c.From, Loc: c.Location()},
-						deps:         make(map[*dispatchState]instructions.Command),
+						stage:        converter.Stage{BaseName: c.From, Loc: c.Location()},
+						deps:         make(map[*dispatchState]converter.Command),
 						paths:        make(map[string]struct{}),
 						unregistered: true,
 					}
@@ -889,7 +981,7 @@ func toCommand(ic instructions.Command, allDispatchStates *dispatchStates) (comm
 		}
 	}
 
-	if c, ok := ic.(*instructions.CommandConatainer); ok {
+	if c, ok := ic.(*converter.CommandConatainer); ok {
 		if c.From != "" {
 			var stn *dispatchState
 			index, err := strconv.Atoi(c.From)
@@ -897,8 +989,8 @@ func toCommand(ic instructions.Command, allDispatchStates *dispatchStates) (comm
 				stn, ok = allDispatchStates.findStateByName(c.From)
 				if !ok {
 					stn = &dispatchState{
-						stage:        instructions.Stage{BaseName: c.From, Loc: c.Location()},
-						deps:         make(map[*dispatchState]instructions.Command),
+						stage:        converter.Stage{BaseName: c.From, Loc: c.Location()},
+						deps:         make(map[*dispatchState]converter.Command),
 						paths:        make(map[string]struct{}),
 						unregistered: true,
 					}
@@ -940,6 +1032,13 @@ func (e *envsFromState) init() {
 
 func (e *envsFromState) Get(key string) (string, bool) {
 	e.once.Do(e.init)
+	if v, err := e.state.Value(context.Background(), dexfile.ScopedVariable(key)); err == nil {
+		if v != nil {
+			return v.(string), true
+		}
+		// if the value is not set, return empty string
+		return "", false
+	}
 	return e.env.Get(key)
 }
 
@@ -1025,7 +1124,7 @@ func (dss *dispatchStates) lastTarget() *dispatchState {
 }
 
 type command struct {
-	instructions.Command
+	converter.Command
 	sources   []*dispatchState
 	isOnBuild bool
 }
@@ -1047,7 +1146,7 @@ func initOnBuildTriggers(d *dispatchState, triggers []string, allDispatchStates 
 		node := ast.AST.Children[0]
 		// reset the location to the onbuild trigger
 		node.StartLine, node.EndLine = rangeStartEnd(d.Location())
-		ic, err := instructions.ParseCommand(ast.AST.Children[0])
+		ic, err := converter.ParseCommand(ast.AST.Children[0])
 		if err != nil {
 			return false, err
 		}
@@ -1127,7 +1226,7 @@ func parseKeyValue(env string) (string, string) {
 }
 
 func dfCmd(cmd any) llb.ConstraintsOpt {
-	// TODO: add fmt.Stringer to instructions.Command to remove interface{}
+	// TODO: add fmt.Stringer to converter.Command to remove interface{}
 	var cmdStr string
 	if cmd, ok := cmd.(fmt.Stringer); ok {
 		cmdStr = cmd.String()
@@ -1140,7 +1239,7 @@ func dfCmd(cmd any) llb.ConstraintsOpt {
 	})
 }
 
-func runCommandString(args []string, buildArgs []instructions.KeyValuePairOptional, env shell.EnvGetter) string {
+func runCommandString(args []string, buildArgs []converter.KeyValuePairOptional, env shell.EnvGetter) string {
 	var tmpBuildEnv []string
 	tmpIdx := map[string]int{}
 	for _, arg := range buildArgs {
@@ -1217,14 +1316,14 @@ func validateCopySourcePath(src string, cfg *copyConfig) error {
 }
 
 func validateCircularDependency(states []*dispatchState) error {
-	var visit func(*dispatchState, []instructions.Command) []instructions.Command
+	var visit func(*dispatchState, []converter.Command) []converter.Command
 	if states == nil {
 		return nil
 	}
 	visited := make(map[*dispatchState]struct{})
 	path := make(map[*dispatchState]struct{})
 
-	visit = func(state *dispatchState, current []instructions.Command) []instructions.Command {
+	visit = func(state *dispatchState, current []converter.Command) []converter.Command {
 		_, ok := visited[state]
 		if ok {
 			return nil
@@ -1509,9 +1608,9 @@ func validateCaseMatch(name string, isMajorityLower bool, location []parser.Rang
 	}
 }
 
-func validateCommandCasing(stages []instructions.Adder, lint *linter.Linter) {
+func validateCommandCasing(stages []converter.Adder, lint *linter.Linter) {
 	var lowerCount, upperCount int
-	caseCount := func(origCmd string, cmds []instructions.Command) {
+	caseCount := func(origCmd string, cmds []converter.Command) {
 		if isSelfConsistentCasing(origCmd) {
 			if strings.ToLower(origCmd) == origCmd {
 				lowerCount++
@@ -1532,9 +1631,9 @@ func validateCommandCasing(stages []instructions.Adder, lint *linter.Linter) {
 	}
 	for _, stage := range stages {
 		switch stage := stage.(type) {
-		case *instructions.Stage:
+		case *converter.Stage:
 			caseCount(stage.OrigCmd, stage.Commands)
-		case *instructions.ImportCommand:
+		case *converter.ImportCommand:
 			caseCount(stage.OrigCmd, stage.Commands)
 		}
 	}
@@ -1545,12 +1644,12 @@ func validateCommandCasing(stages []instructions.Adder, lint *linter.Linter) {
 		// as well as ensuring that the casing is consistent throughout the dockerfile by comparing the
 		// command to the casing of the majority of commands.
 		switch stage := stage.(type) {
-		case *instructions.Stage:
+		case *converter.Stage:
 			validateCaseMatch(stage.OrigCmd, isMajorityLower, stage.Location(), lint)
 			for _, cmd := range stage.Commands {
 				validateCaseMatch(cmd.Name(), isMajorityLower, cmd.Location(), lint)
 			}
-		case *instructions.ImportCommand:
+		case *converter.ImportCommand:
 			validateCaseMatch(stage.OrigCmd, isMajorityLower, stage.Location(), lint)
 			for _, cmd := range stage.Commands {
 				validateCaseMatch(cmd.Name(), isMajorityLower, cmd.Location(), lint)
@@ -1564,11 +1663,11 @@ var reservedStageNames = map[string]struct{}{
 	"scratch": {},
 }
 
-func validateStageNames(stages []instructions.Adder, lint *linter.Linter) {
+func validateStageNames(stages []converter.Adder, lint *linter.Linter) {
 	stageNames := make(map[string]struct{})
 	for _, stage := range stages {
 		switch stage := stage.(type) {
-		case *instructions.Stage:
+		case *converter.Stage:
 			if _, ok := reservedStageNames[stage.StageName]; ok && stage.StageName != "" {
 				msg := linter.RuleReservedStageName.Format(stage.StageName)
 				lint.Run(&linter.RuleReservedStageName, stage.Location(), msg)
@@ -1579,7 +1678,7 @@ func validateStageNames(stages []instructions.Adder, lint *linter.Linter) {
 				lint.Run(&linter.RuleDuplicateStageName, stage.Location(), msg)
 			}
 			stageNames[stage.StageName] = struct{}{}
-		case *instructions.ImportCommand:
+		case *converter.ImportCommand:
 			if _, ok := reservedStageNames[stage.StageName]; ok && stage.StageName != "" {
 				msg := linter.RuleReservedStageName.Format(stage.StageName)
 				lint.Run(&linter.RuleReservedStageName, stage.Location(), msg)
@@ -1594,7 +1693,7 @@ func validateStageNames(stages []instructions.Adder, lint *linter.Linter) {
 	}
 }
 
-func reportUnmatchedVariables(cmd instructions.Command, buildArgs []instructions.KeyValuePairOptional, env shell.EnvGetter, unmatched map[string]struct{}, opt *dispatchOpt) {
+func reportUnmatchedVariables(cmd converter.Command, buildArgs []converter.KeyValuePairOptional, env shell.EnvGetter, unmatched map[string]struct{}, opt *dispatchOpt) {
 	if len(unmatched) == 0 {
 		return
 	}
@@ -1746,7 +1845,7 @@ func (v *instructionTracker) MarkUsed(loc []parser.Range) {
 	v.IsSet = true
 }
 
-func validateUsedOnce(c instructions.Command, loc *instructionTracker, lint *linter.Linter) {
+func validateUsedOnce(c converter.Command, loc *instructionTracker, lint *linter.Linter) {
 	if loc.IsSet {
 		msg := linter.RuleMultipleInstructionsDisallowed.Format(c.Name())
 		// Report the location of the previous invocation because it is the one
@@ -1813,7 +1912,7 @@ func validateNoSecretKey(instruction, key string, location []parser.Range, lint 
 	}
 }
 
-func validateBaseImagesWithDefaultArgs(stages []instructions.Adder, shlex *shell.Lex, env *llb.EnvList, argCmds []instructions.ArgCommand, lint *linter.Linter) {
+func validateBaseImagesWithDefaultArgs(stages []converter.Adder, shlex *shell.Lex, env *llb.EnvList, argCmds []converter.ArgCommand, lint *linter.Linter) {
 	// Build the arguments as if no build options were given
 	// and using only defaults.
 	args, _, err := buildMetaArgs(env, shlex, argCmds, nil)
@@ -1826,7 +1925,7 @@ func validateBaseImagesWithDefaultArgs(stages []instructions.Adder, shlex *shell
 
 	for _, st := range stages {
 		switch st := st.(type) {
-		case *instructions.ImportCommand:
+		case *converter.ImportCommand:
 			vv := strings.SplitN(st.BaseName, ":", 2)
 			baseName := st.BaseName
 			supported := false
@@ -1846,7 +1945,7 @@ func validateBaseImagesWithDefaultArgs(stages []instructions.Adder, shlex *shell
 					lint.Run(&linter.RuleInvalidDefaultArgInFrom, st.Location(), msg)
 				}
 			}
-		case *instructions.Stage:
+		case *converter.Stage:
 			nameMatch, err := shlex.ProcessWordWithMatches(st.BaseName, args)
 			if err != nil {
 				return
@@ -1861,7 +1960,7 @@ func validateBaseImagesWithDefaultArgs(stages []instructions.Adder, shlex *shell
 	}
 }
 
-func buildMetaArgs(args *llb.EnvList, shlex *shell.Lex, argCommands []instructions.ArgCommand, buildArgs map[string]string) (*llb.EnvList, map[string]argInfo, error) {
+func buildMetaArgs(args *llb.EnvList, shlex *shell.Lex, argCommands []converter.ArgCommand, buildArgs map[string]string) (*llb.EnvList, map[string]argInfo, error) {
 	allArgs := make(map[string]argInfo)
 
 	for _, cmd := range argCommands {

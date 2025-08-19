@@ -9,7 +9,6 @@ import (
 	"slices"
 	"time"
 
-	"github.com/dexnore/dexfile"
 	"github.com/dexnore/dexfile/instructions/converter"
 	"github.com/dexnore/dexfile/instructions/parser"
 	"github.com/moby/buildkit/client/llb"
@@ -187,21 +186,20 @@ func handleIfElse(ctx context.Context, d *dispatchState, cmd converter.Condition
 	}
 
 	var (
-		ctr gwclient.Container
+		ctr    gwclient.Container
 		ctrErr error
 	)
-	defer func () {
+	defer func() {
 		if ctrErr := ctr.Release(ctx); ctrErr != nil {
 			err = errors.Join(ctrErr, err)
 		}
 	}()
 
-	stdoutVar, stderrVar := dexfile.ScopedVariable("STDOUT"), dexfile.ScopedVariable("STDERR")
-	defaultStdout, _ := d.state.Value(ctx, stdoutVar)
-	defaultStderr, _ :=	d.state.Value(ctx, stderrVar)
-	defer func () {
-		d.state = d.state.WithValue(stdoutVar, defaultStdout).
-			WithValue(stderrVar, defaultStderr)
+	defaultStdout, _ := d.state.Value(ctx, ARG_STDOUT)
+	defaultStderr, _ := d.state.Value(ctx, ARG_STDERR)
+	defer func() {
+		d.state = d.state.WithValue(ARG_STDOUT, defaultStdout).
+			WithValue(ARG_STDERR, defaultStderr)
 	}()
 
 forloop:
@@ -221,7 +219,7 @@ forloop:
 				return err
 			}
 		case *converter.CommandExec:
-			def, err := d.state.Marshal(ctx, llb.WithCaps(*dOpt.llbCaps))
+			def, err := ds.state.Marshal(ctx, llb.WithCaps(*dOpt.llbCaps))
 			if err != nil {
 				return err
 			}
@@ -229,7 +227,7 @@ forloop:
 			res, err := opt.solver.Client().Solve(ctx, gwclient.SolveRequest{
 				Evaluate:     true,
 				Definition:   def.ToPB(),
-				CacheImports: opt.solver.Client().Config().CacheImports,
+				CacheImports: dOpt.solver.Client().Config().CacheImports,
 			})
 			if err != nil {
 				return parser.WithLocation(err, cmd.Location())
@@ -255,7 +253,7 @@ forloop:
 			}
 			err = nil
 		case *converter.CommandProcess:
-			err, ok := handleProc(ctx, d.Clone(), cond, opt.Clone())
+			err, ok := handleProc(ctx, ds, cond, dOpt)
 			if !ok {
 				if err == nil {
 					err = fmt.Errorf("unable to start [PROC]")
@@ -369,8 +367,8 @@ forloop:
 		if i == 0 { // if condition
 			err := startProcess(ctx, ctr, cmd.ConditionIF.TimeOut, *execop, func() error {
 				d.state = d.state.
-					WithValue(stdoutVar, stdout.String()).
-					WithValue(stderrVar, stderr.String())
+					WithValue(ARG_STDOUT, stdout.String()).
+					WithValue(ARG_STDERR, stderr.String())
 				return exec(cmd.ConditionIF.Commands)
 			}, &nopCloser{stdout}, &nopCloser{stderr})
 			if err != nil {
@@ -378,10 +376,10 @@ forloop:
 				continue forloop
 			}
 		} else {
-			err := startProcess(ctx, ctr, cmd.ConditionIF.TimeOut, *execop, func() error {
+			err := startProcess(ctx, ctr, cmd.ConditionElse[i-1].TimeOut, *execop, func() error {
 				d.state = d.state.
-					WithValue(stdoutVar, stdout.String()).
-					WithValue(stderrVar, stderr.String())
+					WithValue(ARG_STDOUT, stdout.String()).
+					WithValue(ARG_STDERR, stderr.String())
 				return exec(cmd.ConditionElse[i-1].Commands)
 			}, &nopCloser{stdout}, &nopCloser{stderr})
 			if err != nil {
@@ -394,4 +392,3 @@ forloop:
 
 	return fmt.Errorf("all conditions failed: %w", errs)
 }
-

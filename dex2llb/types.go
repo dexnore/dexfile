@@ -100,62 +100,62 @@ func (ds *dispatchState) SourceCode() string {
 }
 
 func (ds dispatchState) Clone() *dispatchState {
-    var base *dispatchState
-    if ds.base != nil {
-        base = ds.base.Clone()
-    }
+	var base *dispatchState
+	if ds.base != nil {
+		base = ds.base.Clone()
+	}
 
-    var epoch *time.Time
-    if ds.epoch != nil {
-        e := *ds.epoch
-        epoch = &e
-    }
+	var epoch *time.Time
+	if ds.epoch != nil {
+		e := *ds.epoch
+		epoch = &e
+	}
 
-    var platform *ocispecs.Platform
-    if ds.platform != nil {
-        p := platforms.MustParse(platforms.Format(*ds.platform))
-        platform = &p
-    }
+	var platform *ocispecs.Platform
+	if ds.platform != nil {
+		p := platforms.MustParse(platforms.Format(*ds.platform))
+		platform = &p
+	}
 
-    return &dispatchState{
-        dispatched:     ds.dispatched,
-        base:           base,
-        stageName:      ds.stageName,
-        state:          ds.state,
-        outline:        ds.outline.clone(),
-        ctxPaths:       maps.Clone(ds.ctxPaths),
-        stage:          ds.stage,
-        imports:        ds.imports,
-        deps:           maps.Clone(ds.deps),
-        paths:          maps.Clone(ds.paths),
-        unregistered:   ds.unregistered,
-        image:          clone(ds.image),
-        buildArgs:      slices.Clone(ds.buildArgs),
-        epoch:          epoch,
-        cmd:            ds.cmd,
-        entrypoint:     ds.entrypoint,
-        healthcheck:    ds.healthcheck,
-        platform:       platform,
-        prefixPlatform: ds.prefixPlatform,
-        ignoreCache:    ds.ignoreCache,
-        cmdIndex:       ds.cmdIndex,
-        cmdTotal:       ds.cmdTotal,
-        cmdIsOnBuild:   ds.cmdIsOnBuild,
-        workdirSet:     ds.workdirSet,
-        opt:            ds.opt,
-        namedContext:   ds.namedContext,
-        baseImg:        cloneX(ds.baseImg),
-        resolved:       ds.resolved,
-        onBuildInit:    ds.onBuildInit,
-        commands:       slices.Clone(ds.commands),
-        scanStage:      ds.scanStage,
-        scanContext:    ds.scanContext,
-    }
+	return &dispatchState{
+		dispatched:     ds.dispatched,
+		base:           base,
+		stageName:      ds.stageName,
+		state:          ds.state,
+		outline:        ds.outline.clone(),
+		ctxPaths:       maps.Clone(ds.ctxPaths),
+		stage:          ds.stage,
+		imports:        ds.imports,
+		deps:           maps.Clone(ds.deps),
+		paths:          maps.Clone(ds.paths),
+		unregistered:   ds.unregistered,
+		image:          clone(ds.image),
+		buildArgs:      slices.Clone(ds.buildArgs),
+		epoch:          epoch,
+		cmd:            ds.cmd,
+		entrypoint:     ds.entrypoint,
+		healthcheck:    ds.healthcheck,
+		platform:       platform,
+		prefixPlatform: ds.prefixPlatform,
+		ignoreCache:    ds.ignoreCache,
+		cmdIndex:       ds.cmdIndex,
+		cmdTotal:       ds.cmdTotal,
+		cmdIsOnBuild:   ds.cmdIsOnBuild,
+		workdirSet:     ds.workdirSet,
+		opt:            ds.opt,
+		namedContext:   ds.namedContext,
+		baseImg:        cloneX(ds.baseImg),
+		resolved:       ds.resolved,
+		onBuildInit:    ds.onBuildInit,
+		commands:       slices.Clone(ds.commands),
+		scanStage:      ds.scanStage,
+		scanContext:    ds.scanContext,
+	}
 }
 
 type dispatchOpt struct {
 	allDispatchStates *dispatchStates
-	functions 		  map[string]instructions.Function
+	functions         map[string]instructions.Function
 	globalArgs        shell.EnvGetter
 	buildArgValues    map[string]string
 	shlex             *shell.Lex
@@ -174,72 +174,72 @@ type dispatchOpt struct {
 	lint              *linter.Linter
 	dexnoreMatcher    *patternmatcher.PatternMatcher
 	solver            dexfile.Solver
-	buildClient dexfile.BuildClient
-	mainContext *llb.State
+	buildClient       dexfile.BuildClient
+	mainContext       *llb.State
 }
 
 func (o dispatchOpt) Clone() dispatchOpt {
-    var shlex *shell.Lex
-    if o.shlex != nil {
-        s := *o.shlex
-        shlex = &s
-    }
+	var shlex *shell.Lex
+	if o.shlex != nil {
+		s := *o.shlex
+		shlex = &s
+	}
 
-    var sourcemap *llb.SourceMap
-    if o.sourceMap != nil {
-        sm := llb.SourceMap{
-            Data:     slices.Clone(o.sourceMap.Data),
-            Filename: o.sourceMap.Filename,
-            Language: o.sourceMap.Language,
-        }
-        if o.sourceMap.Definition != nil {
-            def := llb.Definition{}
-            def.FromPB(o.sourceMap.Definition.ToPB().CloneVT())
-            sm.Definition = &def
-        }
-        if o.sourceMap.State != nil {
-            st := llb.NewState(o.sourceMap.State.Output())
-            sm.State = &st
-        }
-        sourcemap = &sm
-    }
+	var sourcemap *llb.SourceMap
+	if o.sourceMap != nil {
+		sm := llb.SourceMap{
+			Data:     slices.Clone(o.sourceMap.Data),
+			Filename: o.sourceMap.Filename,
+			Language: o.sourceMap.Language,
+		}
+		if o.sourceMap.Definition != nil {
+			def := llb.Definition{}
+			def.FromPB(o.sourceMap.Definition.ToPB().CloneVT())
+			sm.Definition = &def
+		}
+		if o.sourceMap.State != nil {
+			st := llb.NewState(o.sourceMap.State.Output())
+			sm.State = &st
+		}
+		sourcemap = &sm
+	}
 
-    var dss *dispatchStates
-    if o.allDispatchStates != nil {
-        ds := o.allDispatchStates.Clone()
-        dss = &ds
-    }
+	var dss *dispatchStates
+	if o.allDispatchStates != nil {
+		ds := o.allDispatchStates.Clone()
+		dss = &ds
+	}
 
-    var mainContext *llb.State
-    if o.mainContext != nil {
-        st := *o.mainContext
-        mainContext = &st
-    }
+	var mainContext *llb.State
+	if o.mainContext != nil {
+		st := *o.mainContext
+		mainContext = &st
+	}
 
-    return dispatchOpt{
-        lint:              o.lint,
-        buildArgValues:    maps.Clone(o.buildArgValues),
-        globalArgs:        o.globalArgs,
-        shlex:             shlex,
-        targetPlatform:    o.targetPlatform,
-        sourceMap:         sourcemap,
-        llbCaps:           o.llbCaps,
-        dexnoreMatcher:    o.dexnoreMatcher,
-        ulimit:            slices.Clone(o.ulimit),
-        devices:           slices.Clone(o.devices),
-        proxyEnv:          o.proxyEnv,
-        extraHosts:        slices.Clone(o.extraHosts),
-        shmSize:           o.shmSize,
-        cgroupParent:      o.cgroupParent,
-        buildContext:      o.buildContext,
-        cacheIDNamespace:  o.cacheIDNamespace,
-        allDispatchStates: dss,
-        buildPlatforms:    slices.Clone(o.buildPlatforms),
-        solver:            o.solver,
-        buildClient:       o.buildClient,
-        mainContext:       mainContext,
-		functions: maps.Clone(o.functions),
-    }
+	return dispatchOpt{
+		lint:              o.lint,
+		buildArgValues:    maps.Clone(o.buildArgValues),
+		globalArgs:        o.globalArgs,
+		shlex:             shlex,
+		targetPlatform:    o.targetPlatform,
+		sourceMap:         sourcemap,
+		llbCaps:           o.llbCaps,
+		dexnoreMatcher:    o.dexnoreMatcher,
+		ulimit:            slices.Clone(o.ulimit),
+		devices:           slices.Clone(o.devices),
+		proxyEnv:          o.proxyEnv,
+		extraHosts:        slices.Clone(o.extraHosts),
+		shmSize:           o.shmSize,
+		cgroupParent:      o.cgroupParent,
+		buildContext:      o.buildContext,
+		cacheIDNamespace:  o.cacheIDNamespace,
+		allDispatchStates: dss,
+		buildPlatforms:    slices.Clone(o.buildPlatforms),
+		solver:            o.solver,
+		buildClient:       o.buildClient,
+		mainContext:       mainContext,
+		functions:         maps.Clone(o.functions),
+	}
 }
 
 func (dss dispatchStates) Clone() dispatchStates {
