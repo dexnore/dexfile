@@ -64,8 +64,7 @@ func (c *ConditionIfElse) Location() (loc []parser.Range) {
 }
 
 func parseIf(req parseRequest) (ifcmd *ConditionIF, err error) {
-	ifcmd = &ConditionIF{}
-	ifcmd.withNameAndCode = newWithNameAndCode(req)
+	ifcmd = &ConditionIF{ withNameAndCode: newWithNameAndCode(req) }
 	if len(req.args) == 0 {
 		return nil, errors.Errorf("invalid [IF] statement: missing condition. Please specify a subcommand, e.g., 'IF RUN ...'")
 	}

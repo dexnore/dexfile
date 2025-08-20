@@ -285,7 +285,6 @@ func toDispatchState(ctx context.Context, dt []byte, opt df.ConvertOpt) (_ *disp
 	shlex := shell.NewLex(dexfile.EscapeToken)
 	outline := newOutlineCapture()
 	allDispatchStates := newDispatchStates()
-	argCmds := make([]converter.ArgCommand, 0)
 	var functions = make(map[string]converter.Function, 0)
 	globalArgs, outline, err = expandAndAddDispatchState(0, converter.Stage{StageName: "meta-stage", BaseName: metaStageName}, expandStageOpt{
 		globalArgs:        globalArgs,
@@ -376,24 +375,9 @@ func toDispatchState(ctx context.Context, dt []byte, opt df.ConvertOpt) (_ *disp
 			if err != nil {
 				return nil, err
 			}
-			argCmds = append(argCmds, *cmd)
-			globalArgs, outline.allArgs, err = buildMetaArgs(globalArgs, shlex, argCmds, opt.Config.BuildArgs)
+			globalArgs, outline.allArgs, err = buildMetaArgs(globalArgs, shlex, []converter.ArgCommand{*cmd}, opt.Config.BuildArgs)
 			if err != nil {
 				return nil, err
-			}
-			// TODO: delete below lines
-			envGetter := getEnv(metads.state) // ensure envs are initialized
-			testARGS := []string{"STDOUT", "STDERR"}
-			printout, shouldPrint := "", false
-			for _, arg := range testARGS {
-				std, ok := envGetter.Get(arg)
-				printout += fmt.Sprintf("\nARG %s=%s\tok=%+v", arg, std, ok)
-				if ok {
-					shouldPrint = true
-				}
-			}
-			if shouldPrint {
-				return nil, fmt.Errorf(printout)
 			}
 		case *converter.ConditionIF, *converter.ConditionElse, *converter.EndContainer, *converter.EndFunction, *converter.EndIf:
 			return nil, fmt.Errorf("unsupported command %T in meta stage", cmd)
@@ -426,16 +410,6 @@ func toDispatchState(ctx context.Context, dt []byte, opt df.ConvertOpt) (_ *disp
 		}
 	}
 
-	// TODO: delete below lines
-	// testARGS := []string{"ALPINE_VERSION", "XX_VERSION", "GO_VERSION"}
-	// for _, arg := range argCmds {
-	// 	for _, arg := range arg.Args {
-	// 		if slices.Contains(testARGS, arg.Key) {
-	// 			return nil, fmt.Errorf("ARG %s=%s\n%+v", arg.Key, arg.ValueString(), globalArgs.ToArray())
-	// 		}
-	// 	}
-	// }
-
 	def, err := metads.state.Marshal(ctx)
 	if err != nil {
 		return nil, err
@@ -455,7 +429,7 @@ func toDispatchState(ctx context.Context, dt []byte, opt df.ConvertOpt) (_ *disp
 
 	// Validate that base images continue to be valid even
 	// when no build arguments are used.
-	validateBaseImagesWithDefaultArgs(stages, shlex, globalArgs, argCmds, lint)
+	validateBaseImagesWithDefaultArgs(stages, shlex, globalArgs, nil, lint)
 
 	// set base state for every image
 	for i, st := range stages {

@@ -161,11 +161,11 @@ func dispatch(ctx context.Context, d *dispatchState, cmd command, opt dispatchOp
 	case *converter.ConditionIfElse:
 		return handleIfElse(ctx, d, *c, func(nc []converter.Command) error {
 			for _, cmd := range nc {
-				cmd, err := toCommand(cmd, opt.allDispatchStates)
+				ic, err := toCommand(cmd, opt.allDispatchStates)
 				if err != nil {
 					return parser.WithLocation(err, cmd.Location())
 				}
-				if err := dispatch(ctx, d, cmd, opt); err != nil {
+				if err := dispatch(ctx, d, ic, opt); err != nil {
 					return parser.WithLocation(err, cmd.Location())
 				}
 			}
@@ -195,5 +195,4 @@ func dispatch(ctx context.Context, d *dispatchState, cmd command, opt dispatchOp
 	default:
 		return &converter.UnknownInstructionError{Instruction: c.Name(), Line: c.Location()[0].Start.Line}
 	}
-	return err
 }

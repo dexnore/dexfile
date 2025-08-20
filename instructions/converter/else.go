@@ -42,8 +42,7 @@ func (c *ConditionElse) HasCondition() bool {
 }
 
 func parseElse(req parseRequest) (elsecmd *ConditionElse, err error) {
-	elsecmd = &ConditionElse{}
-	elsecmd.withNameAndCode = newWithNameAndCode(req)
+	elsecmd = &ConditionElse{ withNameAndCode: newWithNameAndCode(req) }
 	if len(req.args) > 0 {
 		original := regexp.MustCompile(`(?i)^\s*ELSE\s*`).ReplaceAllString(req.original, "")
 		for _, heredoc := range req.heredocs {

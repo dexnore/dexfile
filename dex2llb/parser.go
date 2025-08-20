@@ -7,8 +7,8 @@ import (
 	"github.com/pkg/errors"
 )
 
-func parseAndValidateDexfile(ast *parser.Node, lint *linter.Linter) (_ []converter.Adder, _ []converter.Command, err error) {
-	stages, metaCmds, err := converter.Parse(ast, lint)
+func parseAndValidateDexfile(ast *parser.Node, lint *linter.Linter) (stages []converter.Adder, metaCmds []converter.Command, err error) {
+	stages, metaCmds, err = converter.Parse(ast, lint)
 	if err != nil {
 		return stages, metaCmds, err
 	}

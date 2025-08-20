@@ -196,6 +196,10 @@ forloop:
 		// Validate that no instruction (except Stage itself) appears before the first Stage
 		if currentActiveStage == nil { // No stages defined yet
 			if _, isStage := cmd.(*Stage); !isStage { // If it's not a Stage command
+				if cmd, err := ParseCommand(n); err == nil {
+					metaCmds = append(metaCmds, cmd)
+					continue
+				}
 				return nil, nil, parser.WithLocation(errors.Errorf("syntax error: found %T before first stage (expected oneof [ 'from' | 'import' | 'func' ] instruction)", cmd), n.Location())
 			}
 		}
@@ -393,8 +397,9 @@ func ParseConditional(ast *parser.Node, lint *linter.Linter) (cond *ConditionIfE
 			}
 
 			// Initialize a new currentElse block
-			currentElse = &ConditionElse{}
-			cond.ConditionElse = append(cond.ConditionElse, currentElse)
+			currentElse = c
+			
+			cond.ConditionElse = append(cond.ConditionElse, c)
 			inElse = true // Transition to the 'else' context
 			cond.code += fmt.Sprintf("\n%s", c.String())
 		case *EndIf: // Encountered an 'endif' keyword

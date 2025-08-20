@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"runtime"
+	"runtime/debug"
 	"slices"
 	"time"
 
@@ -47,6 +48,7 @@ func formatDuration(dur time.Duration) string {
 		return fmt.Sprintf("%d seconds", dur/time.Second)
 	}
 }
+
 func convertMounts(mounts []*pb.Mount) (cm []gwclient.Mount) {
 	for _, m := range mounts {
 		mnt := gwclient.Mount{
@@ -150,12 +152,11 @@ type WriteCloseStringer interface {
 	String() string
 }
 
-func startProcess(ctx context.Context, ctr gwclient.Container, timeout *time.Duration, execop execOp, handleCond func() error, stdout, stderr WriteCloseStringer) (err error, ok bool) {
+func startProcess(ctx context.Context, ctr gwclient.Container, timeout *time.Duration, execop execOp, handleCond func() error, stdout, stderr WriteCloseStringer) (err error, retErr bool) {
 	defer func() {
 		if err == nil && handleCond != nil {
-			if err = handleCond(); err == nil {
-				ok = true
-			}
+			retErr = true
+			err = handleCond()
 		}
 	}()
 	dur := 10 * time.Minute
@@ -177,17 +178,16 @@ func startProcess(ctx context.Context, ctr gwclient.Container, timeout *time.Dur
 	err = pid.Wait()
 	if err != nil {
 		err = fmt.Errorf("conditional container failed: %w\n%s", err, stderr)
-		ok = true
 	}
 
-	return err, ok
+	return err, false
 }
 
 func handleIfElse(ctx context.Context, d *dispatchState, cmd converter.ConditionIfElse, exec func([]converter.Command) error, opt dispatchOpt) (err error) {
 	defer func () {
 		if err != nil {
-			_, file, line, _ := runtime.Caller(2)
-			err = errors.Join(err, fmt.Errorf("error at %s:%d", file, line))
+			_, file, line, _ := runtime.Caller(1)
+			err = errors.Join(err, fmt.Errorf("error at %s:%d\n%+s", file, line, debug.Stack()))
 		}
 	}()
 	var errs error
@@ -208,9 +208,7 @@ func handleIfElse(ctx context.Context, d *dispatchState, cmd converter.Condition
 		if ctr == nil {
 			return
 		}
-		if ctrErr := ctr.Release(ctx); ctrErr != nil {
-			err = errors.Join(ctrErr, err, errs)
-		}
+		ctr.Release(ctx)
 	}()
 
 	defaultStdout, _ := d.state.Value(ctx, ARG_STDOUT)
@@ -351,12 +349,12 @@ forloop:
 			CacheImports: opt.solver.Client().Config().CacheImports,
 		})
 		if err != nil {
-			return parser.WithLocation(err, cmd.Location())
+			return parser.WithLocation(fmt.Errorf("failed to marshal state: %w", err), cmd.Location())
 		}
 
 		ctr, ctrErr = createContainer(ctx, dOpt.solver.Client(), execop, res.Ref)
 		if ctrErr != nil {
-			return parser.WithLocation(ctrErr, cmd.Location())
+			return parser.WithLocation(ctrErr, block.Location())
 		}
 
 		if execop.Exec != nil && execop.Exec.CdiDevices != nil {
@@ -366,7 +364,7 @@ forloop:
 				CacheImports: dOpt.solver.Client().Config().CacheImports,
 			})
 			if err != nil {
-				errs = errors.Join(errs, parser.WithLocation(err, cmd.Location()))
+				errs = errors.Join(errs, parser.WithLocation(err, block.Location()))
 				continue forloop
 			}
 
@@ -390,21 +388,18 @@ forloop:
 			timeout, conditionalCommands = cmd.ConditionElse[i-1].TimeOut, cmd.ConditionElse[i-1].Commands
 		}
 
-		var ok bool
-		err, ok = startProcess(ctx, ctr, timeout, *execop, func() error {
+		var returnErr bool
+		err, returnErr = startProcess(ctx, ctr, timeout, *execop, func() error {
 			d.state = d.state.
 				WithValue(ARG_STDOUT, stdout.String()).
 				WithValue(ARG_STDERR, stderr.String())
 			return exec(conditionalCommands)
 		}, &nopCloser{stdout}, &nopCloser{stderr})
-		if err != nil {
-			if ok {
-				errs = errors.Join(errors.New(stderr.String()), parser.WithLocation(err, block.Location()), errs)
-			}
-			continue forloop
+		if returnErr {
+			return err
 		}
-
-		return err
+		errs = errors.Join(errors.New(stderr.String()), parser.WithLocation(err, block.Location()), errs)
+		continue forloop
 	}
 
 	return fmt.Errorf("all conditions failed: %w", errs)
