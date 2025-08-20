@@ -175,12 +175,13 @@ func handleProc(ctx context.Context, d *dispatchState, cmd *converter.CommandPro
 		}
 	}()
 
-	err = startProcess(ctx, gwctr, cmd.TimeOut, *execop, func() error {
+	var ok bool
+	err, ok = startProcess(ctx, gwctr, cmd.TimeOut, *execop, func() error {
 		return nil
 	}, &nopCloser{stdout}, &nopCloser{stderr})
-	if err != nil {
+	if err != nil && !ok {
 		return parser.WithLocation(fmt.Errorf("%s: %w", stderr.String(), err), cmd.Location()), true
 	}
 
-	return nil, true
+	return err, true
 }

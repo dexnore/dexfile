@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"runtime"
 	"slices"
 	"time"
 
@@ -105,12 +106,12 @@ func createContainer(ctx context.Context, c gwclient.Client, execop *execOp, ref
 
 	ctrReq := gwclient.NewContainerRequest{
 		Mounts: append(
-			[]gwclient.Mount{{
+			convertMounts(execop.Exec.Mounts),
+			gwclient.Mount{
 				Dest:      "/",
 				MountType: pb.MountType_BIND,
 				Ref:       ref,
-			}},
-			convertMounts(execop.Exec.Mounts)...,
+			},
 		),
 		Hostname:    execop.Exec.Meta.GetHostname(),
 		NetMode:     execop.Exec.GetNetwork(),
@@ -133,7 +134,7 @@ func startContainer(ctx context.Context, ctr gwclient.Container, execop *pb.Exec
 		SecretEnv:                 execop.Secretenv,
 		User:                      execop.Meta.User,
 		Cwd:                       execop.Meta.Cwd,
-		Tty:                       false, // default
+		Tty:                       true, // default
 		Stdin:                     nil,   // default
 		Stdout:                    stdout,
 		Stderr:                    stderr,
@@ -144,10 +145,17 @@ func startContainer(ctx context.Context, ctr gwclient.Container, execop *pb.Exec
 	return ctr.Start(ctx, startReq)
 }
 
-func startProcess(ctx context.Context, ctr gwclient.Container, timeout *time.Duration, execop execOp, handleCond func() error, stdout, stderr io.WriteCloser) (err error) {
+type WriteCloseStringer interface {
+	io.WriteCloser
+	String() string
+}
+
+func startProcess(ctx context.Context, ctr gwclient.Container, timeout *time.Duration, execop execOp, handleCond func() error, stdout, stderr WriteCloseStringer) (err error, ok bool) {
 	defer func() {
 		if err == nil && handleCond != nil {
-			err = handleCond()
+			if err = handleCond(); err == nil {
+				ok = true
+			}
 		}
 	}()
 	dur := 10 * time.Minute
@@ -160,21 +168,28 @@ func startProcess(ctx context.Context, ctr gwclient.Container, timeout *time.Dur
 	var pid gwclient.ContainerProcess
 	pid, err = startContainer(pidCtx, ctr, execop.Exec, stdout, stderr)
 	if err != nil {
-		return err
+		return err, false
 	}
 
 	if pid == nil {
-		return fmt.Errorf("pid is nil")
+		return fmt.Errorf("pid is nil"), false
 	}
 	err = pid.Wait()
 	if err != nil {
-		err = fmt.Errorf("conditional container failed: %w", err)
+		err = fmt.Errorf("conditional container failed: %w\n%s", err, stderr)
+		ok = true
 	}
 
-	return err
+	return err, ok
 }
 
 func handleIfElse(ctx context.Context, d *dispatchState, cmd converter.ConditionIfElse, exec func([]converter.Command) error, opt dispatchOpt) (err error) {
+	defer func () {
+		if err != nil {
+			_, file, line, _ := runtime.Caller(2)
+			err = errors.Join(err, fmt.Errorf("error at %s:%d", file, line))
+		}
+	}()
 	var errs error
 	if cmd.ConditionIF == nil || cmd.ConditionIF.Condition == nil {
 		return errors.New("'if' condition cannot be nil")
@@ -301,7 +316,7 @@ forloop:
 				return exec(cmd.ConditionElse[i-1].Commands)
 			}
 		default:
-			return fmt.Errorf("unsupported conditional subcommand: %T", cond)
+			return fmt.Errorf("unsupported conditional subcommand: %s", cond.Name())
 		}
 
 		def, err := ds.state.Marshal(ctx)
@@ -375,18 +390,21 @@ forloop:
 			timeout, conditionalCommands = cmd.ConditionElse[i-1].TimeOut, cmd.ConditionElse[i-1].Commands
 		}
 
-		err = startProcess(ctx, ctr, timeout, *execop, func() error {
+		var ok bool
+		err, ok = startProcess(ctx, ctr, timeout, *execop, func() error {
 			d.state = d.state.
 				WithValue(ARG_STDOUT, stdout.String()).
 				WithValue(ARG_STDERR, stderr.String())
 			return exec(conditionalCommands)
 		}, &nopCloser{stdout}, &nopCloser{stderr})
 		if err != nil {
-			errs = errors.Join(errors.New(stderr.String()), parser.WithLocation(err, block.Location()), errs)
+			if ok {
+				errs = errors.Join(errors.New(stderr.String()), parser.WithLocation(err, block.Location()), errs)
+			}
 			continue forloop
 		}
 
-		return nil
+		return err
 	}
 
 	return fmt.Errorf("all conditions failed: %w", errs)

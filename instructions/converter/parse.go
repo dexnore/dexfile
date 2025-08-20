@@ -318,7 +318,7 @@ forloop:
 
 // ParseConditional is the main function to parse the conditional block
 func ParseConditional(ast *parser.Node, lint *linter.Linter) (cond *ConditionIfElse, i int, err error) {
-	cond = &ConditionIfElse{withNameAndCode: newWithNameAndCode(newParseRequestFromNode(ast))}
+	cond = &ConditionIfElse{withNameAndCode: newWithNameAndCode(newParseRequestFromNode(ast.Children[0]))}
 	var (
 		inElse      bool
 		currentElse *ConditionElse
@@ -361,6 +361,7 @@ func ParseConditional(ast *parser.Node, lint *linter.Linter) (cond *ConditionIfE
 				return nil, i, err // Propagate error from nested parsing
 			}
 
+			cond.code += fmt.Sprintf("\n\t%s", nestedCond.String())
 			if inElse {
 				if err := currentElse.AddCommand(nestedCond); err != nil {
 					return nil, i, parser.WithLocation(err, n.Location())
@@ -395,6 +396,7 @@ func ParseConditional(ast *parser.Node, lint *linter.Linter) (cond *ConditionIfE
 			currentElse = &ConditionElse{}
 			cond.ConditionElse = append(cond.ConditionElse, currentElse)
 			inElse = true // Transition to the 'else' context
+			cond.code += fmt.Sprintf("\n%s", c.String())
 		case *EndIf: // Encountered an 'endif' keyword
 			// Close the current 'else' block if one was open
 			if inElse && currentElse != nil {
@@ -410,6 +412,7 @@ func ParseConditional(ast *parser.Node, lint *linter.Linter) (cond *ConditionIfE
 					return nil, i, parser.WithLocation(errors.Errorf("conditional block error: unable to close 'if' block while parsing 'endif'"), n.Location())
 				}
 			}
+			cond.code += fmt.Sprintf("\n%s", c.String())
 			return cond, i + 1, nil // Return, consuming the EndIf instruction (+1)
 		case *CommandConatainer:
 			ctrBlock := &parser.Node{Children: ast.Children[i:]}
@@ -435,6 +438,7 @@ func ParseConditional(ast *parser.Node, lint *linter.Linter) (cond *ConditionIfE
 				}
 			}
 			i += consumed
+			cond.code += fmt.Sprintf("\n\t%s", ctrcmd.String())
 		case *CommandFor:
 			forBlock := &parser.Node{Children: ast.Children[i:]}
 			forcmd, consumed, err := ParseLoop(forBlock, lint)
@@ -459,6 +463,7 @@ func ParseConditional(ast *parser.Node, lint *linter.Linter) (cond *ConditionIfE
 				}
 			}
 			i += consumed
+			cond.code += fmt.Sprintf("\n\t%s", forcmd.String())
 		case *Function:
 			funNode := &parser.Node{Children: ast.Children[i:]}
 			fun, consumed, err := ParseFunction(funNode, lint)
@@ -483,6 +488,7 @@ func ParseConditional(ast *parser.Node, lint *linter.Linter) (cond *ConditionIfE
 				}
 			}
 			i += consumed // Advance index by the number of nodes consumed by the nested ParseScoped call
+			cond.code += fmt.Sprintf("\n\t%s", fun.String())
 		case Command:
 			if inElse {
 				// STRICT REQUIREMENT: currentElse must be initialized before adding content
@@ -500,6 +506,11 @@ func ParseConditional(ast *parser.Node, lint *linter.Linter) (cond *ConditionIfE
 				if err := cond.AddCommand(c); err != nil {
 					return nil, i, parser.WithLocation(err, n.Location())
 				}
+			}
+			if stringer, ok := c.(fmt.Stringer); ok {
+				cond.code += fmt.Sprintf("\n\t%s", stringer.String()) // TODO: add for `FUNC`, `CTR`, `FOR` etc..., instructions too 
+			} else {
+				cond.code += fmt.Sprintf("\n\t%s %s", c.Name(), "<unknown command>")
 			}
 		default:
 			return nil, i, parser.WithLocation(errors.Errorf("%T is not a recognized instruction type for if/else blocks", cmd), n.Location())

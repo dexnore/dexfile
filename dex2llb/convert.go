@@ -376,11 +376,25 @@ func toDispatchState(ctx context.Context, dt []byte, opt df.ConvertOpt) (_ *disp
 			if err != nil {
 				return nil, err
 			}
-			globalArgs, outline.allArgs, err = buildMetaArgs(globalArgs, shlex, []converter.ArgCommand{*cmd}, opt.Config.BuildArgs)
+			argCmds = append(argCmds, *cmd)
+			globalArgs, outline.allArgs, err = buildMetaArgs(globalArgs, shlex, argCmds, opt.Config.BuildArgs)
 			if err != nil {
 				return nil, err
 			}
-			argCmds = append(argCmds, *cmd)
+			// TODO: delete below lines
+			envGetter := getEnv(metads.state) // ensure envs are initialized
+			testARGS := []string{"STDOUT", "STDERR"}
+			printout, shouldPrint := "", false
+			for _, arg := range testARGS {
+				std, ok := envGetter.Get(arg)
+				printout += fmt.Sprintf("\nARG %s=%s\tok=%+v", arg, std, ok)
+				if ok {
+					shouldPrint = true
+				}
+			}
+			if shouldPrint {
+				return nil, fmt.Errorf(printout)
+			}
 		case *converter.ConditionIF, *converter.ConditionElse, *converter.EndContainer, *converter.EndFunction, *converter.EndIf:
 			return nil, fmt.Errorf("unsupported command %T in meta stage", cmd)
 		case *converter.ConditionIfElse:
@@ -394,10 +408,10 @@ func toDispatchState(ctx context.Context, dt []byte, opt df.ConvertOpt) (_ *disp
 			}
 
 			envGetter := getEnv(metads.state) // ensure envs are initialized
-			if v, ok := envGetter.Get(ARG_STDOUT); ok {
+			if v, ok := envGetter.Get("STDOUT"); ok {
 				globalArgs = globalArgs.AddOrReplace("STDOUT", v)
 			}
-			if v, ok := envGetter.Get(ARG_STDERR); ok {
+			if v, ok := envGetter.Get("STDERR"); ok {
 				globalArgs = globalArgs.AddOrReplace("STDERR", v)
 			}
 		default:
@@ -412,11 +426,15 @@ func toDispatchState(ctx context.Context, dt []byte, opt df.ConvertOpt) (_ *disp
 		}
 	}
 
-	envGetter := getEnv(metads.state)
-	for _, k := range envGetter.Keys() {
-		v, _ := envGetter.Get(k)
-		globalArgs = globalArgs.AddOrReplace(k, v)
-	}
+	// TODO: delete below lines
+	// testARGS := []string{"ALPINE_VERSION", "XX_VERSION", "GO_VERSION"}
+	// for _, arg := range argCmds {
+	// 	for _, arg := range arg.Args {
+	// 		if slices.Contains(testARGS, arg.Key) {
+	// 			return nil, fmt.Errorf("ARG %s=%s\n%+v", arg.Key, arg.ValueString(), globalArgs.ToArray())
+	// 		}
+	// 	}
+	// }
 
 	def, err := metads.state.Marshal(ctx)
 	if err != nil {

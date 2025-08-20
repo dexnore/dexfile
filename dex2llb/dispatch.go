@@ -163,10 +163,10 @@ func dispatch(ctx context.Context, d *dispatchState, cmd command, opt dispatchOp
 			for _, cmd := range nc {
 				cmd, err := toCommand(cmd, opt.allDispatchStates)
 				if err != nil {
-					return err
+					return parser.WithLocation(err, cmd.Location())
 				}
 				if err := dispatch(ctx, d, cmd, opt); err != nil {
-					return err
+					return parser.WithLocation(err, cmd.Location())
 				}
 			}
 			return nil

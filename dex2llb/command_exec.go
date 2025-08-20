@@ -83,9 +83,10 @@ func dispatchExec(ctx context.Context, d *dispatchState, cmd converter.CommandEx
 	var (
 		stdout = bytes.NewBuffer(nil)
 		stderr = bytes.NewBuffer(nil)
+		ok bool
 	)
 
-	err = startProcess(ctx, ctr, cmd.TimeOut, *execop, func() error {
+	err, ok = startProcess(ctx, ctr, cmd.TimeOut, *execop, func() error {
 		p := platforms.DefaultSpec()
 		if ds.platform != nil {
 			p = *ds.platform
@@ -159,10 +160,10 @@ func dispatchExec(ctx context.Context, d *dispatchState, cmd converter.CommandEx
 		d.state = llb.Merge([]llb.State{d.state, s})
 		return nil
 	}, &nopCloser{stdout}, &nopCloser{stderr})
-	if err != nil {
+	if err != nil && !ok {
 		return parser.WithLocation(fmt.Errorf("%s\n%w", stderr.String(), err), cmd.Location())
 	}
-	return nil
+	return err
 }
 
 func parseDefinationToState(ctx context.Context, data io.Reader, c client.Client, platform ocispecs.Platform) (st llb.State, err error) {

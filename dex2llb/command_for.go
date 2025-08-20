@@ -94,11 +94,15 @@ func handleForLoop(ctx context.Context, d *dispatchState, cmd converter.CommandF
 		return parser.WithLocation(ctrErr, cmd.Location())
 	}
 
-	err = startProcess(ctx, ctr, cmd.TimeOut, *execop, func() error {
+	var ok bool
+	err, ok = startProcess(ctx, ctr, cmd.TimeOut, *execop, func() error {
 		return nil
 	}, &nopCloser{stdout}, &nopCloser{stderr})
 	if err != nil {
-		return parser.WithLocation(fmt.Errorf("%s: %w", stderr.String(), err), cmd.Location())
+		if !ok {
+			return parser.WithLocation(fmt.Errorf("%s: %w", stderr.String(), err), cmd.Location())
+		}
+		return err
 	}
 
 	if cmd.Delim == "" {
