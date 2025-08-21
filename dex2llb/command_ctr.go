@@ -170,9 +170,7 @@ func handleProc(ctx context.Context, d *dispatchState, cmd *converter.CommandPro
 	}
 
 	defer func() {
-		if ctrErr := gwctr.Release(ctx); ctrErr != nil {
-			err = fmt.Errorf("%w\n%w", ctrErr, err)
-		}
+		gwctr.Release(ctx)
 	}()
 
 	var ok bool

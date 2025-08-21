@@ -71,9 +71,7 @@ func dispatchExec(ctx context.Context, d *dispatchState, cmd converter.CommandEx
 	}
 
 	defer func() {
-		if ctrErr := ctr.Release(ctx); ctrErr != nil {
-			err = fmt.Errorf("%w\n%w", ctrErr, err)
-		}
+		ctr.Release(ctx)
 	}()
 
 	if execop.Exec != nil && execop.Exec.CdiDevices != nil {

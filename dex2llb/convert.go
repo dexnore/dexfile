@@ -311,6 +311,11 @@ func toDispatchState(ctx context.Context, dt []byte, opt df.ConvertOpt) (_ *disp
 		llb.WithCustomName(prefixCommand(metads, "FROM "+metads.BaseName(), opt.Config.MultiPlatformRequested, platform, emptyEnvs{})),
 		location(opt.SourceMap, metads.Location()),
 	)
+	for _, k := range globalArgs.Keys() {
+		if v, ok := globalArgs.Get(k); ok {
+			metads.state = metads.state.AddEnv(k, v)
+		}
+	}
 	dOpt := dispatchOpt{
 		allDispatchStates: allDispatchStates,
 		globalArgs:        globalArgs,
@@ -366,38 +371,8 @@ func toDispatchState(ctx context.Context, dt []byte, opt df.ConvertOpt) (_ *disp
 			if err != nil {
 				return nil, err
 			}
-		case *converter.ArgCommand:
-			ic, err := toCommand(cmd, allDispatchStates)
-			if err != nil {
-				return nil, err
-			}
-			err = dispatch(ctx, metads, ic, dOpt)
-			if err != nil {
-				return nil, err
-			}
-			globalArgs, outline.allArgs, err = buildMetaArgs(globalArgs, shlex, []converter.ArgCommand{*cmd}, opt.Config.BuildArgs)
-			if err != nil {
-				return nil, err
-			}
 		case *converter.ConditionIF, *converter.ConditionElse, *converter.EndContainer, *converter.EndFunction, *converter.EndIf:
 			return nil, fmt.Errorf("unsupported command %T in meta stage", cmd)
-		case *converter.ConditionIfElse:
-			ic, err := toCommand(cmd, allDispatchStates)
-			if err != nil {
-				return nil, err
-			}
-			err = dispatch(ctx, metads, ic, dOpt)
-			if err != nil {
-				return nil, parser.WithLocation(err, cmd.Location())
-			}
-
-			envGetter := getEnv(metads.state) // ensure envs are initialized
-			if v, ok := envGetter.Get("STDOUT"); ok {
-				globalArgs = globalArgs.AddOrReplace("STDOUT", v)
-			}
-			if v, ok := envGetter.Get("STDERR"); ok {
-				globalArgs = globalArgs.AddOrReplace("STDERR", v)
-			}
 		default:
 			ic, err := toCommand(cmd, allDispatchStates)
 			if err != nil {
@@ -422,6 +397,10 @@ func toDispatchState(ctx context.Context, dt []byte, opt df.ConvertOpt) (_ *disp
 	})
 	if err != nil {
 		return nil, err
+	}
+
+	for _, kvp := range metads.buildArgs {
+		globalArgs = globalArgs.AddOrReplace(kvp.Key, kvp.ValueString())
 	}
 
 	validateStageNames(stages, lint)
@@ -1042,8 +1021,8 @@ func (e *envsFromState) init() {
 
 func (e *envsFromState) Get(key string) (string, bool) {
 	e.once.Do(e.init)
-	if v, err := e.state.Value(context.Background(), df.ScopedVariable(key)); err == nil {
-		if v != nil {
+	if v, err := e.state.Value(context.TODO(), df.ScopedVariable(key)); err == nil {
+		if _, ok := v.(string); ok {
 			return v.(string), true
 		}
 		// if the value is not set, return empty string
@@ -2037,4 +2016,38 @@ func (emptyEnvs) Get(string) (string, bool) {
 
 func (emptyEnvs) Keys() []string {
 	return nil
+}
+
+type buildArgsAsEnvList []converter.KeyValuePairOptional
+
+func (b buildArgsAsEnvList) Get(key string) (string, bool) {
+	for _, kvp := range b {
+		if kvp.Key == key {
+			if kvp.Value == nil {
+				return "", false
+			}
+			return kvp.ValueString(), true
+		}
+	}
+
+	return "", false
+}
+
+func (b buildArgsAsEnvList) Keys() (keys []string) {
+	for _, kvp := range b {
+		keys = append(keys, kvp.Key)
+	}
+
+	return keys
+}
+
+func (b *buildArgsAsEnvList) Prepend(envlist shell.EnvGetter) {
+	for _, k := range envlist.Keys() {
+		v, ok := envlist.Get(k)
+		if ok {
+			*b = append([]converter.KeyValuePairOptional{{Key: k, Value: &v}}, *b...)
+		} else {
+			*b = append([]converter.KeyValuePairOptional{{Key: k}}, *b...)
+		}
+	}
 }

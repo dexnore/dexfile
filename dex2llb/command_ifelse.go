@@ -6,8 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"runtime"
-	"runtime/debug"
 	"slices"
 	"time"
 
@@ -184,12 +182,6 @@ func startProcess(ctx context.Context, ctr gwclient.Container, timeout *time.Dur
 }
 
 func handleIfElse(ctx context.Context, d *dispatchState, cmd converter.ConditionIfElse, exec func([]converter.Command) error, opt dispatchOpt) (err error) {
-	defer func () {
-		if err != nil {
-			_, file, line, _ := runtime.Caller(1)
-			err = errors.Join(err, fmt.Errorf("error at %s:%d\n%+s", file, line, debug.Stack()))
-		}
-	}()
 	var errs error
 	if cmd.ConditionIF == nil || cmd.ConditionIF.Condition == nil {
 		return errors.New("'if' condition cannot be nil")

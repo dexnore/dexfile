@@ -696,8 +696,11 @@ func dispatchArg(d *dispatchState, c *converter.ArgCommand, opt *dispatchOpt) er
 			v := opt.buildArgValues[arg.Key]
 			arg.Value = &v
 		} else if hasDefault {
-			env := getEnv(d.state)
-			v, unmatched, err := opt.shlex.ProcessWord(*arg.Value, env)
+			shlex := *opt.shlex
+			shlex.SkipUnsetEnv = true
+			var env buildArgsAsEnvList = d.buildArgs
+			env.Prepend(getEnv(d.state))
+			v, unmatched, err := shlex.ProcessWord(*arg.Value, env)
 			reportUnmatchedVariables(c, d.buildArgs, env, unmatched, opt)
 			if err != nil {
 				return err
