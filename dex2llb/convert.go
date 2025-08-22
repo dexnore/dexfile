@@ -1025,8 +1025,6 @@ func (e *envsFromState) Get(key string) (string, bool) {
 		if _, ok := v.(string); ok {
 			return v.(string), true
 		}
-		// if the value is not set, return empty string
-		return "", false
 	}
 	return e.env.Get(key)
 }
@@ -2019,7 +2017,6 @@ func (emptyEnvs) Keys() []string {
 }
 
 type buildArgsAsEnvList []converter.KeyValuePairOptional
-
 func (b buildArgsAsEnvList) Get(key string) (string, bool) {
 	for _, kvp := range b {
 		if kvp.Key == key {
@@ -2045,9 +2042,9 @@ func (b *buildArgsAsEnvList) Prepend(envlist shell.EnvGetter) {
 	for _, k := range envlist.Keys() {
 		v, ok := envlist.Get(k)
 		if ok {
-			*b = append([]converter.KeyValuePairOptional{{Key: k, Value: &v}}, *b...)
+			*b = append([]converter.KeyValuePairOptional{{Key: k, Value: &v, Comment: "Prepended"}}, *b...)
 		} else {
-			*b = append([]converter.KeyValuePairOptional{{Key: k}}, *b...)
+			*b = append([]converter.KeyValuePairOptional{{Key: k, Comment: "Prepended"}}, *b...)
 		}
 	}
 }

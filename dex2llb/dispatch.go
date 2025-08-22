@@ -22,8 +22,12 @@ func dispatch(ctx context.Context, d *dispatchState, cmd command, opt dispatchOp
 	_, isArg := cmd.Command.(*converter.ArgCommand)
 	if ex, ok := cmd.Command.(converter.SupportsSingleWordExpansion); ok && !isArg {
 		err := ex.Expand(func(word string) (string, error) {
-			env := getEnv(d.state)
-			newword, unmatched, err := opt.shlex.ProcessWord(word, env)
+			shlex := *opt.shlex
+			shlex.RawEscapes = true
+			shlex.SkipUnsetEnv = true
+			var env buildArgsAsEnvList = d.buildArgs
+			env.Prepend(getEnv(d.state))
+			newword, unmatched, err := shlex.ProcessWord(word, env)
 			reportUnmatchedVariables(cmd, d.buildArgs, env, unmatched, &opt)
 			return newword, err
 		})
@@ -35,7 +39,8 @@ func dispatch(ctx context.Context, d *dispatchState, cmd command, opt dispatchOp
 		err := ex.ExpandRaw(func(word string) (string, error) {
 			lex := shell.NewLex('\\')
 			lex.SkipProcessQuotes = true
-			env := getEnv(d.state)
+			var env buildArgsAsEnvList = d.buildArgs
+			env.Prepend(getEnv(d.state))
 			newword, unmatched, err := lex.ProcessWord(word, env)
 			reportUnmatchedVariables(cmd, d.buildArgs, env, unmatched, &opt)
 			return newword, err

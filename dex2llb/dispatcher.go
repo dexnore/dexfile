@@ -697,6 +697,7 @@ func dispatchArg(d *dispatchState, c *converter.ArgCommand, opt *dispatchOpt) er
 			arg.Value = &v
 		} else if hasDefault {
 			shlex := *opt.shlex
+			shlex.RawEscapes = true
 			shlex.SkipUnsetEnv = true
 			var env buildArgsAsEnvList = d.buildArgs
 			env.Prepend(getEnv(d.state))
