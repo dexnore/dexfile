@@ -14,7 +14,7 @@ import (
 	"github.com/moby/buildkit/solver/pb"
 )
 
-func handleForLoop(ctx context.Context, d *dispatchState, cmd converter.CommandFor, exec func([]converter.Command, string) error, opt dispatchOpt) (err error) {
+func handleForLoop(ctx context.Context, d *dispatchState, cmd converter.CommandFor, exec func([]converter.Command) error, opt dispatchOpt) (err error) {
 	if cmd.Action != converter.ActionForIn {
 		return fmt.Errorf("unsupported 'for' action: %s", cmd.Action)
 	}
@@ -36,8 +36,6 @@ func handleForLoop(ctx context.Context, d *dispatchState, cmd converter.CommandF
 	var (
 		ctr    client.Container
 		ctrErr error
-		stdout = bytes.NewBuffer(nil)
-		stderr = bytes.NewBuffer(nil)
 	)
 
 	defer func() {
@@ -47,10 +45,15 @@ func handleForLoop(ctx context.Context, d *dispatchState, cmd converter.CommandF
 		ctr.Release(ctx)
 	}()
 
-	ds, dOpt := d.Clone(), opt.Clone()
+	ds, dOpt, isProc := d.Clone(), opt.Clone(), false
 	switch exec := cmd.EXEC.(type) {
 	case *converter.CommandExec:
-		err = dispatchExec(ctx, ds, *exec, res, dOpt)
+		exec.Result = res
+		ic, err := toCommand(exec, dOpt.allDispatchStates)
+		if err != nil {
+			return err
+		}
+		err = dispatch(ctx, ds, ic, dOpt)
 		if err != nil {
 			return parser.WithLocation(fmt.Errorf("exec command error: %w", err), exec.Location())
 		}
@@ -59,9 +62,28 @@ func handleForLoop(ctx context.Context, d *dispatchState, cmd converter.CommandF
 		if err != nil {
 			return parser.WithLocation(fmt.Errorf("toCommand: %w", err), exec.Location())
 		}
-		if err = dispatchRun(ds, exec, dOpt.proxyEnv, dc.sources, dOpt); err != nil {
+		if err = dispatch(ctx, ds, dc, dOpt); err != nil {
 			return parser.WithLocation(fmt.Errorf("run command: %s", err), exec.Location())
 		}
+	case *converter.CommandProcess:
+		err := exec.RUN.Expand(func(word string) (string, error) {
+			shlex := opt.shlex
+			shlex.SkipUnsetEnv = true
+			env := getEnv(d.state)
+			newword, unmatched, err := shlex.ProcessWord(word, env)
+			reportUnmatchedVariables(cmd, d.buildArgs, env, unmatched, &opt)
+			return newword, err
+		})
+		if err != nil {
+			return err
+		}
+		if err, ok := handleProc(ctx, ds, exec, dOpt); err != nil {
+			if !ok {
+				return parser.WithLocation(fmt.Errorf("process command: %s", err), exec.Location())
+			}
+			return err
+		}
+		isProc = true
 	default:
 		return parser.WithLocation(fmt.Errorf("unsupported [FOR] command exec: %s", exec.Name()), exec.Location())
 	}
@@ -92,31 +114,49 @@ func handleForLoop(ctx context.Context, d *dispatchState, cmd converter.CommandF
 		return parser.WithLocation(ctrErr, cmd.Location())
 	}
 
-	var ok bool
-	err, ok = startProcess(ctx, ctr, cmd.TimeOut, *execop, func() error {
+	var (
+		stdout = bytes.NewBuffer(nil)
+		stderr = bytes.NewBuffer(nil)
+		returnErr bool
+	)
+	err, returnErr = startProcess(ctx, ctr, cmd.TimeOut, *execop, func() error {
 		return nil
 	}, &nopCloser{stdout}, &nopCloser{stderr})
 	if err != nil {
-		if !ok {
+		if returnErr {
 			return parser.WithLocation(fmt.Errorf("%s: %w", stderr.String(), err), cmd.Location())
 		}
 		return err
 	}
 
-	if cmd.Delim == "" {
-		cmd.Delim = "\n"
+	if cmd.Regex.Action == "" {
+		cmd.Regex.Action = "\n"
 	}
 
 	defaultAs, _ := d.state.Value(ctx, dexfile.ScopedVariable(cmd.As))
+	if isProc {
+		defaultSTDOUT, _ := ds.state.Value(ctx, dexfile.ScopedVariable("STDOUT"))
+		stdout = bytes.NewBuffer([]byte(defaultSTDOUT.(string)))
+	}
 	defer func() {
 		d.state = d.state.WithValue(dexfile.ScopedVariable(cmd.As), defaultAs)
 	}()
-	delim, err := regexp.Compile(cmd.Delim)
+	delim, err := regexp.Compile(cmd.Regex.Regex)
 	if err == nil {
-		v := delim.FindAllString(stdout.String(), -1)
-		for _, dv := range v {
-			d.state = d.state.WithValue(dexfile.ScopedVariable(cmd.As), dv)
-			if err := exec(cmd.Commands, dv); err != nil {
+		var regexOutput []string
+		switch stdout := stdout.String(); cmd.Regex.Action {
+		case converter.ActionRegexSplit:
+			regexOutput = delim.Split(stdout, -1)
+		case converter.ActionRegexMatch:
+			regexOutput = delim.FindAllString(stdout, -1)
+		default:
+			return fmt.Errorf("unsupported regex action: %s", cmd.Regex.Action)
+		}
+		for i, dv := range regexOutput {
+			d.state = d.state.
+				WithValue(dexfile.ScopedVariable(cmd.As), dv).
+				WithValue(dexfile.ScopedVariable("INDEX"), i)
+			if err := exec(cmd.Commands); err != nil {
 				return err
 			}
 		}

@@ -2,6 +2,7 @@ package dex2llb
 
 import (
 	"context"
+	"fmt"
 	"path"
 	"path/filepath"
 	"strings"
@@ -22,11 +23,9 @@ func dispatch(ctx context.Context, d *dispatchState, cmd command, opt dispatchOp
 	_, isArg := cmd.Command.(*converter.ArgCommand)
 	if ex, ok := cmd.Command.(converter.SupportsSingleWordExpansion); ok && !isArg {
 		err := ex.Expand(func(word string) (string, error) {
-			shlex := *opt.shlex
-			shlex.RawEscapes = true
+			shlex := opt.shlex
 			shlex.SkipUnsetEnv = true
-			var env buildArgsAsEnvList = d.buildArgs
-			env.Prepend(getEnv(d.state))
+			env := getEnv(d.state)
 			newword, unmatched, err := shlex.ProcessWord(word, env)
 			reportUnmatchedVariables(cmd, d.buildArgs, env, unmatched, &opt)
 			return newword, err
@@ -39,8 +38,8 @@ func dispatch(ctx context.Context, d *dispatchState, cmd command, opt dispatchOp
 		err := ex.ExpandRaw(func(word string) (string, error) {
 			lex := shell.NewLex('\\')
 			lex.SkipProcessQuotes = true
-			var env buildArgsAsEnvList = d.buildArgs
-			env.Prepend(getEnv(d.state))
+			lex.SkipUnsetEnv = true
+			env := getEnv(d.state)
 			newword, unmatched, err := lex.ProcessWord(word, env)
 			reportUnmatchedVariables(cmd, d.buildArgs, env, unmatched, &opt)
 			return newword, err
@@ -149,18 +148,21 @@ func dispatch(ctx context.Context, d *dispatchState, cmd command, opt dispatchOp
 		}
 		return err
 	case *converter.CommandExec:
-		def, err := d.state.Marshal(ctx)
-		if err != nil {
-			return parser.WithLocation(err, cmd.Location())
-		}
+		var res = c.Result
+		if c.Result == nil {
+			def, err := d.state.Marshal(ctx)
+			if err != nil {
+				return parser.WithLocation(err, cmd.Location())
+			}
 
-		res, err := opt.solver.Client().Solve(ctx, client.SolveRequest{
-			Evaluate:     true,
-			Definition:   def.ToPB(),
-			CacheImports: opt.solver.Client().Config().CacheImports,
-		})
-		if err != nil {
-			return parser.WithLocation(err, cmd.Location())
+			res, err = opt.solver.Client().Solve(ctx, client.SolveRequest{
+				Evaluate:     true,
+				Definition:   def.ToPB(),
+				CacheImports: opt.solver.Client().Config().CacheImports,
+			})
+			if err != nil {
+				return parser.WithLocation(err, cmd.Location())
+			}
 		}
 		return dispatchExec(ctx, d, *c, res, opt)
 	case *converter.ConditionIfElse:
@@ -177,15 +179,14 @@ func dispatch(ctx context.Context, d *dispatchState, cmd command, opt dispatchOp
 			return nil
 		}, opt)
 	case *converter.CommandFor:
-		return handleForLoop(ctx, d, *c, func(nc []converter.Command, s string) error {
+		return handleForLoop(ctx, d, *c, func(nc []converter.Command) error {
 			for _, cmd := range nc {
-				d.state = d.state.AddEnv(c.As, s)
 				cmd, err := toCommand(cmd, opt.allDispatchStates)
 				if err != nil {
-					return err
+					return parser.WithLocation(err, cmd.Location())
 				}
 				if err := dispatch(ctx, d, cmd, opt); err != nil {
-					return err
+					return parser.WithLocation(err, cmd.Location())
 				}
 			}
 			return nil
@@ -198,6 +199,6 @@ func dispatch(ctx context.Context, d *dispatchState, cmd command, opt dispatchOp
 		d, err = dispatchBuild(*c, opt)
 		return err
 	default:
-		return &converter.UnknownInstructionError{Instruction: c.Name(), Line: c.Location()[0].Start.Line}
+		return fmt.Errorf("unknown dispatcher command: %w", &converter.UnknownInstructionError{Instruction: c.Name(), Line: c.Location()[0].Start.Line})
 	}
 }

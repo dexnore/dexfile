@@ -40,7 +40,11 @@ func dispatchExec(ctx context.Context, d *dispatchState, cmd converter.CommandEx
 	}
 
 	var execSources = dc.sources
-	if err := dispatchRun(ds, cmd.RUN, dOpt.proxyEnv, dc.sources, dOpt); err != nil {
+	ic, err := toCommand(cmd, dOpt.allDispatchStates)
+	if err != nil {
+		return err
+	}
+	if err := dispatch(ctx, ds, ic, dOpt); err != nil {
 		return err
 	}
 
@@ -81,10 +85,10 @@ func dispatchExec(ctx context.Context, d *dispatchState, cmd converter.CommandEx
 	var (
 		stdout = bytes.NewBuffer(nil)
 		stderr = bytes.NewBuffer(nil)
-		ok bool
+		retErr bool
 	)
 
-	err, ok = startProcess(ctx, ctr, cmd.TimeOut, *execop, func() error {
+	err, retErr = startProcess(ctx, ctr, cmd.TimeOut, *execop, func() error {
 		p := platforms.DefaultSpec()
 		if ds.platform != nil {
 			p = *ds.platform
@@ -158,7 +162,7 @@ func dispatchExec(ctx context.Context, d *dispatchState, cmd converter.CommandEx
 		d.state = llb.Merge([]llb.State{d.state, s})
 		return nil
 	}, &nopCloser{stdout}, &nopCloser{stderr})
-	if err != nil && !ok {
+	if retErr {
 		return parser.WithLocation(fmt.Errorf("%s\n%w", stderr.String(), err), cmd.Location())
 	}
 	return err

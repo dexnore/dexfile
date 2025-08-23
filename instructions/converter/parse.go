@@ -151,56 +151,66 @@ forloop:
 			return nil, nil, &parseError{inner: parseErr, node: n}
 		}
 
-		// Handle meta commands before the first stage
-		if len(stages) == 0 {
-			switch c := cmd.(type) {
-			case *ConditionIfElse:
-				metaCmds = append(metaCmds, c)
-				continue forloop
-			case *ImportCommand:
-				if c.StageName == "" {
-					stages = append(stages, c)
-					continue forloop
-				}
-				metaCmds = append(metaCmds, c)
-				continue forloop
-			case *ArgCommand:
-				metaCmds = append(metaCmds, c)
-				continue forloop
-			case *ConditionIF:
-				blockNode := &parser.Node{Children: ast.Children[i:]}
-				condBlock, consumedNodes, parseScopedErr := ParseConditional(blockNode, lint)
-				if parseScopedErr != nil {
-					return nil, nil, parseScopedErr
-				}
-
-				metaCmds = append(metaCmds, condBlock)
-				i += consumedNodes - 1
-				continue forloop
-			case *Function:
-				blockNode := &parser.Node{Children: ast.Children[i:]}
-				funcBlock, consumedNodes, parseScopedErr := ParseFunction(blockNode, lint)
-				if parseScopedErr != nil {
-					return nil, nil, parseScopedErr
-				}
-
-				metaCmds = append(metaCmds, funcBlock)
-				i += consumedNodes - 1
-				continue forloop
-			}
-		}
-
 		// Get the current active stage. This will return an error if no stage has been defined yet.
 		currentActiveStage, stageErr := CurrentStage(stages)
 
 		// Validate that no instruction (except Stage itself) appears before the first Stage
 		if currentActiveStage == nil { // No stages defined yet
 			if _, isStage := cmd.(*Stage); !isStage { // If it's not a Stage command
-				if cmd, err := ParseCommand(n); err == nil {
+				switch cmd := cmd.(type) {
+				case *ConditionIF:
+					blockNode := &parser.Node{Children: ast.Children[i:]}
+					condBlock, consumedNodes, parseScopedErr := ParseConditional(blockNode, lint)
+					if parseScopedErr != nil {
+						return nil, nil, parseScopedErr
+					}
+
+					metaCmds = append(metaCmds, condBlock)
+					i += consumedNodes - 1
+					continue forloop
+				case *CommandFor:
+					blockNode := &parser.Node{Children: ast.Children[i:]}
+					forBlock, consumedNodes, parseScopedErr := ParseLoop(blockNode, lint)
+					if parseScopedErr != nil {
+						return nil, nil, parseScopedErr
+					}
+
+					metaCmds = append(metaCmds, forBlock)
+					i += consumedNodes - 1
+					continue forloop
+				case *CommandConatainer:
+					blockNode := &parser.Node{Children: ast.Children[i:]}
+					ctrBlock, consumedNodes, parseScopedErr := ParseContainer(blockNode, lint)
+					if parseScopedErr != nil {
+						return nil, nil, parseScopedErr
+					}
+
+					metaCmds = append(metaCmds, ctrBlock)
+					i += consumedNodes - 1
+					continue forloop
+				case *Function:
+					blockNode := &parser.Node{Children: ast.Children[i:]}
+					funcBlock, consumedNodes, parseScopedErr := ParseFunction(blockNode, lint)
+					if parseScopedErr != nil {
+						return nil, nil, parseScopedErr
+					}
+
+					metaCmds = append(metaCmds, funcBlock)
+					i += consumedNodes - 1
+					continue forloop
+				case *ImportCommand:
+					if cmd.StageName == "" {
+						stages = append(stages, cmd)
+						continue forloop
+					}
 					metaCmds = append(metaCmds, cmd)
-					continue
+					continue forloop
+				case Command:
+					metaCmds = append(metaCmds, cmd)
+					continue forloop
+				default:
+					return nil, nil, parser.WithLocation(errors.Errorf("syntax error: found %T before first stage (expected oneof [ 'from' | 'import' | 'func' ] instruction)", cmd), n.Location())
 				}
-				return nil, nil, parser.WithLocation(errors.Errorf("syntax error: found %T before first stage (expected oneof [ 'from' | 'import' | 'func' ] instruction)", cmd), n.Location())
 			}
 		}
 

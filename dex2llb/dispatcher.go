@@ -699,8 +699,7 @@ func dispatchArg(d *dispatchState, c *converter.ArgCommand, opt *dispatchOpt) er
 			shlex := *opt.shlex
 			shlex.RawEscapes = true
 			shlex.SkipUnsetEnv = true
-			var env buildArgsAsEnvList = d.buildArgs
-			env.Prepend(getEnv(d.state))
+			env := getEnv(d.state)
 			v, unmatched, err := shlex.ProcessWord(*arg.Value, env)
 			reportUnmatchedVariables(c, d.buildArgs, env, unmatched, opt)
 			if err != nil {

@@ -13,9 +13,6 @@ func dispatchBuild(cmd converter.CommandBuild, opt dispatchOpt) (buildState *dis
 		return nil, parser.WithLocation(fmt.Errorf("no stage found with name %q", cmd.Stage), cmd.Location())
 	}
 
-	for _, kvp := range cmd.Args {
-		buildState.state = buildState.state.AddEnv(kvp.Key, kvp.Value)
-	}
-
+	buildState.buildArgs = append(buildState.buildArgs, cmd.Args...)
 	return buildState, nil
 }

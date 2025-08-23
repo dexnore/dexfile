@@ -74,7 +74,7 @@ func parseImport(req parseRequest) (*ImportCommand, error) {
 		OrigCmd:    req.command,
 		StageName:  stageName,
 		SourceCode: code,
-		Commands:   []Command{},
+		Commands:   make([]Command, 0),
 		Platform:   flPlatform.Value,
 		Target:     flTarget.Value,
 		FileName:   flFilename.Value,

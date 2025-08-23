@@ -134,7 +134,7 @@ func startContainer(ctx context.Context, ctr gwclient.Container, execop *pb.Exec
 		SecretEnv:                 execop.Secretenv,
 		User:                      execop.Meta.User,
 		Cwd:                       execop.Meta.Cwd,
-		Tty:                       true, // default
+		Tty:                       false, // default
 		Stdin:                     nil,   // default
 		Stdout:                    stdout,
 		Stderr:                    stderr,
@@ -175,7 +175,7 @@ func startProcess(ctx context.Context, ctr gwclient.Container, timeout *time.Dur
 	}
 	err = pid.Wait()
 	if err != nil {
-		err = fmt.Errorf("conditional container failed: %w\n%s", err, stderr)
+		err = fmt.Errorf("container process failed: %w\n%s", err, stderr)
 	}
 
 	return err, false
@@ -223,7 +223,7 @@ forloop:
 			if err != nil {
 				return err
 			}
-			if err = dispatchRun(ds, cond, dOpt.proxyEnv, dc.sources, dOpt); err != nil {
+			if err = dispatch(ctx, ds, dc, dOpt); err != nil {
 				return err
 			}
 		case *converter.CommandExec:
@@ -241,7 +241,12 @@ forloop:
 				return parser.WithLocation(err, cmd.Location())
 			}
 
-			err = dispatchExec(ctx, ds, *cond, res, dOpt)
+			cond.Result = res
+			ic, err := toCommand(cond, dOpt.allDispatchStates)
+			if err != nil {
+				return err
+			}
+			err = dispatch(ctx, ds, ic, dOpt)
 			if err != nil {
 				return err
 			}
@@ -261,6 +266,17 @@ forloop:
 			}
 			err = nil
 		case *converter.CommandProcess:
+			err := cond.RUN.Expand(func(word string) (string, error) {
+				shlex := opt.shlex
+				shlex.SkipUnsetEnv = true
+				env := getEnv(d.state)
+				newword, unmatched, err := shlex.ProcessWord(word, env)
+				reportUnmatchedVariables(cond, d.buildArgs, env, unmatched, &opt)
+				return newword, err
+			})
+			if err != nil {
+				return err
+			}
 			err, ok := handleProc(ctx, ds, cond, dOpt)
 			if !ok {
 				if err == nil {

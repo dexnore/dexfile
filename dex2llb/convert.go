@@ -316,12 +316,21 @@ func toDispatchState(ctx context.Context, dt []byte, opt df.ConvertOpt) (_ *disp
 			metads.state = metads.state.AddEnv(k, v)
 		}
 	}
+	bctx := opt.MainContext
+	if opt.BC != nil {
+		bctx, err = opt.BC.MainContext(context.Background())
+		if err != nil {
+			return nil, err
+		}
+	} else if bctx == nil {
+		bctx = maincontext.DefaultMainContext()
+	}
 	dOpt := dispatchOpt{
 		allDispatchStates: allDispatchStates,
 		globalArgs:        globalArgs,
 		buildArgValues:    opt.Config.BuildArgs,
 		shlex:             shlex,
-		buildContext:      llb.Scratch(), // context should not be accessible
+		buildContext:      *bctx,
 		proxyEnv:          proxyEnv,
 		cacheIDNamespace:  opt.Config.CacheIDNamespace,
 		buildPlatforms:    platformOpt.buildPlatforms,
@@ -906,7 +915,7 @@ func toDispatchState(ctx context.Context, dt []byte, opt df.ConvertOpt) (_ *disp
 	}
 
 	opts := filterPaths(ctxPaths)
-	bctx := opt.MainContext
+	bctx = opt.MainContext
 	if opt.BC != nil {
 		bctx, err = opt.BC.MainContext(ctx, opts...)
 		if err != nil {
@@ -1022,8 +1031,8 @@ func (e *envsFromState) init() {
 func (e *envsFromState) Get(key string) (string, bool) {
 	e.once.Do(e.init)
 	if v, err := e.state.Value(context.TODO(), df.ScopedVariable(key)); err == nil {
-		if _, ok := v.(string); ok {
-			return v.(string), true
+		if v, ok := v.(string); ok {
+			return v, true
 		}
 	}
 	return e.env.Get(key)
