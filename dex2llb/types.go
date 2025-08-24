@@ -162,7 +162,7 @@ func (ds dispatchState) Clone() *dispatchState {
 
 type dispatchOpt struct {
 	allDispatchStates *dispatchStates
-	functions         map[string]instructions.Function
+	functions         map[string]*instructions.Function
 	globalArgs        shell.EnvGetter
 	buildArgValues    map[string]string
 	shlex             *shell.Lex

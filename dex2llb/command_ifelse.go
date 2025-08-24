@@ -266,17 +266,6 @@ forloop:
 			}
 			err = nil
 		case *converter.CommandProcess:
-			err := cond.RUN.Expand(func(word string) (string, error) {
-				shlex := opt.shlex
-				shlex.SkipUnsetEnv = true
-				env := getEnv(d.state)
-				newword, unmatched, err := shlex.ProcessWord(word, env)
-				reportUnmatchedVariables(cond, d.buildArgs, env, unmatched, &opt)
-				return newword, err
-			})
-			if err != nil {
-				return err
-			}
 			err, ok := handleProc(ctx, ds, cond, dOpt)
 			if !ok {
 				if err == nil {

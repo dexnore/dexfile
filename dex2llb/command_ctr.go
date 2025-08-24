@@ -134,6 +134,17 @@ func handleProc(ctx context.Context, d *dispatchState, cmd *converter.CommandPro
 			WithValue(ARG_STDOUT, stdout.String()).
 			WithValue(ARG_STDERR, stderr.String())
 	}()
+	err = cmd.RUN.Expand(func(word string) (string, error) {
+		shlex := opt.shlex
+		shlex.SkipUnsetEnv = true
+		env := getEnv(d.state)
+		newword, unmatched, err := shlex.ProcessWord(word, env)
+		reportUnmatchedVariables(cmd, d.buildArgs, env, unmatched, &opt)
+		return newword, err
+	})
+	if err != nil {
+		return err, false
+	}
 	dc, err := toCommand(cmd.RUN, opt.allDispatchStates)
 	if err != nil {
 		return err, false

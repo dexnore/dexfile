@@ -28,7 +28,7 @@ func dispatchFunction(ctx context.Context, d *dispatchState, cmd converter.Funct
 
 func handleFunctionCall(ctx context.Context, cmd converter.Function, d *dispatchState, opt dispatchOpt) error {
 	var (
-		function converter.Function
+		function *converter.Function
 		ok       bool
 	)
 	if function, ok = opt.functions[cmd.FuncName]; !ok {
@@ -64,6 +64,6 @@ func handleFunctionCall(ctx context.Context, cmd converter.Function, d *dispatch
 }
 
 func handleFunctionDefination(cmd converter.Function, opt dispatchOpt) error {
-	opt.functions[cmd.FuncName] = cmd
+	opt.functions[cmd.FuncName] = &cmd
 	return nil
 }

@@ -66,17 +66,6 @@ func handleForLoop(ctx context.Context, d *dispatchState, cmd converter.CommandF
 			return parser.WithLocation(fmt.Errorf("run command: %s", err), exec.Location())
 		}
 	case *converter.CommandProcess:
-		err := exec.RUN.Expand(func(word string) (string, error) {
-			shlex := opt.shlex
-			shlex.SkipUnsetEnv = true
-			env := getEnv(d.state)
-			newword, unmatched, err := shlex.ProcessWord(word, env)
-			reportUnmatchedVariables(cmd, d.buildArgs, env, unmatched, &opt)
-			return newword, err
-		})
-		if err != nil {
-			return err
-		}
 		if err, ok := handleProc(ctx, ds, exec, dOpt); err != nil {
 			if !ok {
 				return parser.WithLocation(fmt.Errorf("process command: %s", err), exec.Location())

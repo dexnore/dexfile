@@ -251,7 +251,6 @@ func toDispatchState(ctx context.Context, dt []byte, opt df.ConvertOpt) (_ *disp
 	}
 
 	proxyEnv := proxyEnvFromBuildArgs(opt.Config.BuildArgs)
-
 	stages, metaCmds, err := parseAndValidateDexfile(dexfile.AST, lint)
 	if err != nil {
 		return nil, err
@@ -285,7 +284,7 @@ func toDispatchState(ctx context.Context, dt []byte, opt df.ConvertOpt) (_ *disp
 	shlex := shell.NewLex(dexfile.EscapeToken)
 	outline := newOutlineCapture()
 	allDispatchStates := newDispatchStates()
-	var functions = make(map[string]converter.Function, 0)
+	var functions = make(map[string]*converter.Function, 0)
 	globalArgs, outline, err = expandAndAddDispatchState(0, converter.Stage{StageName: "meta-stage", BaseName: metaStageName}, expandStageOpt{
 		globalArgs:        globalArgs,
 		outline:           outline,
