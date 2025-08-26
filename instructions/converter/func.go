@@ -51,6 +51,7 @@ func parseFunc(req parseRequest) (fun *Function, err error) {
 		}
 
 		key, value, ok := strings.Cut(arg, "=")
+		key = strings.TrimPrefix(key, "--")
 		if ok {
 			fun.AddArg(KeyValuePairOptional{
 				Key:   key,

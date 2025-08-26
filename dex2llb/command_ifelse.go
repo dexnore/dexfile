@@ -285,7 +285,7 @@ forloop:
 				return exec(cmd.ConditionElse[i-1].Commands)
 			}
 		case *converter.CommandBuild:
-			bs, err := dispatchBuild(*cond, opt)
+			bs, err := dispatchBuild(ctx, *cond, opt)
 			if err != nil {
 				return err
 			}

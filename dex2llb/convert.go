@@ -1069,11 +1069,13 @@ func (ds *dispatchState) init() {
 
 type dispatchStates struct {
 	states       []*dispatchState
+	immutableStates []*dispatchState
 	statesByName map[string]*dispatchState
+	immutableStatesByName map[string]*dispatchState
 }
 
 func newDispatchStates() *dispatchStates {
-	return &dispatchStates{statesByName: map[string]*dispatchState{}}
+	return &dispatchStates{statesByName: map[string]*dispatchState{}, immutableStatesByName: map[string]*dispatchState{}}
 }
 
 func (dss *dispatchStates) names() []string {
@@ -1087,6 +1089,7 @@ func (dss *dispatchStates) names() []string {
 }
 
 func (dss *dispatchStates) addState(ds *dispatchState) {
+	dss.immutableStates = append(dss.immutableStates, ds.Clone())
 	dss.states = append(dss.states, ds)
 
 	if d, ok := dss.statesByName[ds.BaseName()]; ok {
@@ -1095,8 +1098,10 @@ func (dss *dispatchStates) addState(ds *dispatchState) {
 	}
 
 	if ds.stage.StageName != "" {
+		dss.immutableStatesByName[strings.ToLower(ds.stage.StageName)] = ds.Clone()
 		dss.statesByName[strings.ToLower(ds.stage.StageName)] = ds
 	} else if ds.imports.StageName != "" {
+		dss.immutableStatesByName[strings.ToLower(ds.imports.StageName)] = ds.Clone()
 		dss.statesByName[strings.ToLower(ds.imports.StageName)] = ds
 	}
 }
@@ -1112,6 +1117,22 @@ func (dss *dispatchStates) findStateByIndex(index int) (*dispatchState, error) {
 	}
 
 	return dss.states[index], nil
+}
+
+func (dss *dispatchStates) findImmutableStateByName(name string) (*dispatchState, bool) {
+	ds, ok := dss.immutableStatesByName[strings.ToLower(name)]
+	if ds != nil {
+		return ds.Clone(), ok
+	}
+	return nil, ok
+}
+
+func (dss *dispatchStates) findImmutableStateByIndex(index int) (*dispatchState, error) {
+	if index < 0 || index >= len(dss.immutableStates) {
+		return nil, errors.Errorf("invalid stage index %d", index)
+	}
+
+	return dss.immutableStates[index].Clone(), nil
 }
 
 func (dss *dispatchStates) lastTarget() *dispatchState {

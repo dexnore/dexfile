@@ -1,13 +1,15 @@
 package dex2llb
 
 import (
+	// "bytes"
 	"context"
 	"fmt"
 	"strings"
 
-	"github.com/dexnore/dexfile"
 	"github.com/dexnore/dexfile/instructions/converter"
 	"github.com/dexnore/dexfile/instructions/parser"
+	"github.com/moby/buildkit/client/llb"
+	"github.com/moby/buildkit/solver/pb"
 )
 
 func dispatchFunction(ctx context.Context, d *dispatchState, cmd converter.Function, opt dispatchOpt) (err error) {
@@ -35,31 +37,30 @@ func handleFunctionCall(ctx context.Context, cmd converter.Function, d *dispatch
 		return fmt.Errorf("unknown function: %q", cmd.FuncName)
 	}
 
-	var defaultKVP = make(map[string]any)
-	for _, kvp := range append(function.Args, cmd.Args...) {
-		v, _ := d.state.Value(ctx, dexfile.ScopedVariable(kvp.Key))
-		defaultKVP[dexfile.ScopedVariable(kvp.Key)] = v
-		d.state = d.state.WithValue(dexfile.ScopedVariable(kvp.Key), kvp.ValueString())
+	var funcArgs = append(function.Args, cmd.Args...)
+	ds, dOpt := d.Clone(), opt.Clone()
+	for _, kvp := range funcArgs {
+		ds.state = ds.state.AddEnv(kvp.Key, kvp.ValueString())
 	}
-	defer func() {
-		for _, kvp := range append(function.Args, cmd.Args...) {
-			d.state = d.state.WithValue(dexfile.ScopedVariable(kvp.Key), "")
-		}
-
-		for k, v := range defaultKVP {
-			d.state = d.state.WithValue(dexfile.ScopedVariable(k), v)
-		}
-	}()
 	for _, cmd := range function.Commands {
-		cmd, err := toCommand(cmd, opt.allDispatchStates)
+		cmd, err := toCommand(cmd, dOpt.allDispatchStates)
 		if err != nil {
 			return err
 		}
-		if err := dispatch(ctx, d, cmd, opt); err != nil {
+		if err := dispatch(ctx, ds, cmd, dOpt); err != nil {
 			return err
 		}
 	}
 
+	copt := []llb.ConstraintsOpt{
+		llb.WithCustomNamef("FUNC CALL %s", cmd.FuncName),
+	}
+
+	if opt.llbCaps.Supports(pb.CapMergeOp) == nil {
+		d.state = llb.Merge([]llb.State{d.state, llb.Diff(d.state, ds.state)}, copt...)
+	} else {
+		d.state = d.state.File(llb.Copy(ds.state, "/", "/"), copt...)
+	}
 	return nil
 }
 

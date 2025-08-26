@@ -196,7 +196,7 @@ func dispatch(ctx context.Context, d *dispatchState, cmd command, opt dispatchOp
 	case *converter.Function:
 		return dispatchFunction(ctx, d, *c, opt)
 	case *converter.CommandBuild:
-		d, err = dispatchBuild(*c, opt)
+		d, err = dispatchBuild(ctx, *c, opt)
 		return err
 	default:
 		return fmt.Errorf("unknown dispatcher command: %w", &converter.UnknownInstructionError{Instruction: c.Name(), Line: c.Location()[0].Start.Line})

@@ -19,6 +19,9 @@ func parseBuild(req parseRequest) (cmdBuild *CommandBuild, err error) {
 
 	cmdBuild.Stage = req.args[0]
 	cmdBuild.Args = make([]KeyValuePairOptional, len(req.flags.Args))
+	if err := req.flags.MustParse(); err != nil {
+		return nil, err
+	}
 	for _, arg := range req.flags.Args {
 		if arg == "--" {
 			break
@@ -29,14 +32,17 @@ func parseBuild(req parseRequest) (cmdBuild *CommandBuild, err error) {
 		}
 
 		key, value, ok := strings.Cut(arg, "=")
+		key = strings.TrimPrefix(key, "--")
 		if ok {
 			cmdBuild.Args = append(cmdBuild.Args, KeyValuePairOptional{
 				Key:   key,
 				Value: &value,
 			})
 		} else {
+			True := "true"
 			cmdBuild.Args = append(cmdBuild.Args, KeyValuePairOptional{
 				Key:   key,
+				Value: &True,
 			})
 		}
 	}
