@@ -33,8 +33,12 @@ func (c *ConditionElse) AddCommand(cmd Command) error {
 	return nil
 }
 
-func (c *ConditionElse) EndBlock() {
+func (c *ConditionElse) EndBlock() error {
+	if c.End {
+		return errors.New("cannot end Conditional ELSE block: the block has already been closed")
+	}
 	c.End = true
+	return nil
 }
 
 func (c *ConditionElse) HasCondition() bool {

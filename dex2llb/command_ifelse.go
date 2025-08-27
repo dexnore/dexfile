@@ -13,6 +13,7 @@ import (
 	"github.com/dexnore/dexfile/instructions/parser"
 	"github.com/moby/buildkit/client/llb"
 	gwclient "github.com/moby/buildkit/frontend/gateway/client"
+	"github.com/moby/buildkit/identity"
 	"github.com/moby/buildkit/solver/pb"
 )
 
@@ -203,11 +204,14 @@ func handleIfElse(ctx context.Context, d *dispatchState, cmd converter.Condition
 		ctr.Release(ctx)
 	}()
 
-	defaultStdout, _ := d.state.Value(ctx, ARG_STDOUT)
-	defaultStderr, _ := d.state.Value(ctx, ARG_STDERR)
+	ifElseID := identity.NewID()
+	dClone := d.Clone()
 	defer func() {
-		d.state = d.state.WithValue(ARG_STDOUT, defaultStdout).
-			WithValue(ARG_STDERR, defaultStderr)
+		if opt.llbCaps.Supports(pb.CapMergeOp) == nil {
+			d.state = llb.Merge([]llb.State{d.state, llb.Diff(d.state, dClone.state)}, llb.WithCaps(*opt.llbCaps), llb.ProgressGroup(ifElseID, "IF/ELSE ==> "+cmd.String(), true))
+		} else {
+			d.state = d.state.File(llb.Copy(dClone.state, "/", "/"),  llb.WithCaps(*opt.llbCaps), llb.ProgressGroup(ifElseID, "IF/ELSE ==> "+cmd.String(), true))
+		}
 	}()
 
 forloop:
@@ -216,7 +220,7 @@ forloop:
 			return exec(cmd.ConditionElse[i-1].Commands)
 		}
 
-		ds, dOpt := d.Clone(), opt.Clone() // TODO: clone causes error. fix it
+		ds, dOpt := d.Clone(), opt.Clone()
 		switch cond := block.(type) {
 		case *converter.RunCommand:
 			dc, err := toCommand(cond, dOpt.allDispatchStates)
@@ -227,7 +231,8 @@ forloop:
 				return err
 			}
 		case *converter.CommandExec:
-			def, err := ds.state.Marshal(ctx, llb.WithCaps(*dOpt.llbCaps))
+			copts := []llb.ConstraintsOpt{llb.WithCaps(*dOpt.llbCaps), llb.ProgressGroup(ifElseID, "IF/ELSE ==> " + cond.String(), true)}
+			def, err := ds.state.Marshal(ctx, copts...)
 			if err != nil {
 				return err
 			}
@@ -251,7 +256,7 @@ forloop:
 				return err
 			}
 
-			def, err = ds.state.Marshal(ctx, llb.WithCaps(*dOpt.llbCaps))
+			def, err = ds.state.Marshal(ctx, copts...)
 			if err != nil {
 				return err
 			}
@@ -290,7 +295,7 @@ forloop:
 				return err
 			}
 
-			def, err := bs.state.Marshal(ctx)
+			def, err := bs.state.Marshal(ctx, llb.ProgressGroup(ifElseID, "IF/ELSE ==> " + cond.String(), true))
 			if err != nil {
 				return err
 			}
@@ -314,7 +319,11 @@ forloop:
 			return fmt.Errorf("unsupported conditional subcommand: %s", cond.Name())
 		}
 
-		def, err := ds.state.Marshal(ctx)
+		pgName := cmd.String()
+		if block, ok := block.(interface{ String() string }); ok {
+			pgName = block.String()
+		}
+		def, err := ds.state.Marshal(ctx, llb.ProgressGroup(ifElseID, "IF/ELSE ==> " + pgName, true))
 		if err != nil {
 			return err
 		}
@@ -335,7 +344,7 @@ forloop:
 			return parser.WithLocation(errors.New("no conditional statement found"), block.Location())
 		}
 
-		ddef, err := d.state.Marshal(ctx)
+		ddef, err := d.state.Marshal(ctx, llb.ProgressGroup(ifElseID, "IF/ELSE ==> " + pgName, true))
 		if err != nil {
 			return err
 		}
@@ -387,9 +396,9 @@ forloop:
 
 		var returnErr bool
 		err, returnErr = startProcess(ctx, ctr, timeout, *execop, func() error {
-			d.state = d.state.
-				WithValue(ARG_STDOUT, stdout.String()).
-				WithValue(ARG_STDERR, stderr.String())
+			dClone.state = dClone.state.
+				AddEnv("STDOUT", stdout.String()).
+				AddEnv("STDERR", stderr.String())
 			return exec(conditionalCommands)
 		}, &nopCloser{stdout}, &nopCloser{stderr})
 		if returnErr {
@@ -397,6 +406,10 @@ forloop:
 		}
 		errs = errors.Join(errors.New(stderr.String()), parser.WithLocation(err, block.Location()), errs)
 		continue forloop
+	}
+
+	if errs == nil || len(conds) == 1 { // NOTE: if no else condition => skip if condition error
+		return nil
 	}
 
 	return fmt.Errorf("all conditions failed: %w", errs)

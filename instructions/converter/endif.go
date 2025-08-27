@@ -14,8 +14,6 @@ func parseEndIf(req parseRequest) (*EndIf, error) {
 			return nil, &UnknownInstructionError{Instruction: s, Line: req.location[0].Start.Line}
 		}
 	}
-	endIf := &EndIf{}
-	endIf.withNameAndCode = newWithNameAndCode(req)
 
-	return endIf, nil
+	return &EndIf{ withNameAndCode: newWithNameAndCode(req) }, nil
 }

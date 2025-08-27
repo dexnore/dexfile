@@ -53,11 +53,12 @@ func handleFunctionCall(ctx context.Context, cmd converter.Function, d *dispatch
 	}
 
 	copt := []llb.ConstraintsOpt{
+		llb.WithCaps(*dOpt.llbCaps),
 		llb.WithCustomNamef("FUNC CALL %s", cmd.FuncName),
 	}
 
 	if opt.llbCaps.Supports(pb.CapMergeOp) == nil {
-		d.state = llb.Merge([]llb.State{d.state, llb.Diff(d.state, ds.state)}, copt...)
+		d.state = llb.Merge([]llb.State{d.state, llb.Diff(d.state, ds.state , copt...)})
 	} else {
 		d.state = d.state.File(llb.Copy(ds.state, "/", "/"), copt...)
 	}

@@ -1,6 +1,7 @@
 package converter
 
 import (
+	"fmt"
 	"slices"
 	"strings"
 	"time"
@@ -40,8 +41,12 @@ func (c *ConditionIF) AddCommand(cmd Command) error {
 	return nil
 }
 
-func (c *ConditionIF) EndBlock() {
+func (c *ConditionIF) EndBlock() error {
+	if c.End {
+		return fmt.Errorf("cannot end Conditional IF block: the block has already been closed")
+	}
 	c.End = true
+	return nil
 }
 
 type ConditionIfElse struct {
