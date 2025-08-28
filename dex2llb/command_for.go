@@ -10,11 +10,13 @@ import (
 	"github.com/dexnore/dexfile"
 	"github.com/dexnore/dexfile/instructions/converter"
 	"github.com/dexnore/dexfile/instructions/parser"
+	"github.com/moby/buildkit/client/llb"
 	"github.com/moby/buildkit/frontend/gateway/client"
+	"github.com/moby/buildkit/identity"
 	"github.com/moby/buildkit/solver/pb"
 )
 
-func handleForLoop(ctx context.Context, d *dispatchState, cmd converter.CommandFor, exec func([]converter.Command) error, opt dispatchOpt) (err error) {
+func handleForLoop(ctx context.Context, d *dispatchState, cmd converter.CommandFor, exec func([]converter.Command, ...llb.ConstraintsOpt) error, opt dispatchOpt, copts ...llb.ConstraintsOpt) (err error) {
 	if cmd.Action != converter.ActionForIn {
 		return fmt.Errorf("unsupported 'for' action: %s", cmd.Action)
 	}
@@ -45,6 +47,12 @@ func handleForLoop(ctx context.Context, d *dispatchState, cmd converter.CommandF
 		ctr.Release(ctx)
 	}()
 
+	forID := identity.NewID()
+	localCopts := []llb.ConstraintsOpt{
+		llb.WithCaps(*opt.llbCaps),
+		llb.ProgressGroup(forID, fmt.Sprintf("FOR %+v", cmd.EXEC), false),
+	}
+	LocalCopts := append(copts, localCopts...)
 	ds, dOpt, isProc := d.Clone(), opt.Clone(), false
 	switch exec := cmd.EXEC.(type) {
 	case *converter.CommandExec:
@@ -53,7 +61,7 @@ func handleForLoop(ctx context.Context, d *dispatchState, cmd converter.CommandF
 		if err != nil {
 			return err
 		}
-		err = dispatch(ctx, ds, ic, dOpt)
+		err = dispatch(ctx, ds, ic, dOpt, LocalCopts...)
 		if err != nil {
 			return parser.WithLocation(fmt.Errorf("exec command error: %w", err), exec.Location())
 		}
@@ -62,7 +70,7 @@ func handleForLoop(ctx context.Context, d *dispatchState, cmd converter.CommandF
 		if err != nil {
 			return parser.WithLocation(fmt.Errorf("toCommand: %w", err), exec.Location())
 		}
-		if err = dispatch(ctx, ds, dc, dOpt); err != nil {
+		if err = dispatch(ctx, ds, dc, dOpt, LocalCopts...); err != nil {
 			return parser.WithLocation(fmt.Errorf("run command: %s", err), exec.Location())
 		}
 	case *converter.CommandProcess:
@@ -133,7 +141,7 @@ func handleForLoop(ctx context.Context, d *dispatchState, cmd converter.CommandF
 	delim, err := regexp.Compile(cmd.Regex.Regex)
 	if err == nil {
 		var regexOutput []string
-		switch stdout := stdout.String(); cmd.Regex.Action {
+		switch stdout := stripNewlineSuffix(stdout.String())[0]; cmd.Regex.Action {
 		case converter.ActionRegexSplit:
 			regexOutput = delim.Split(stdout, -1)
 		case converter.ActionRegexMatch:
@@ -145,7 +153,7 @@ func handleForLoop(ctx context.Context, d *dispatchState, cmd converter.CommandF
 			d.state = d.state.
 				WithValue(dexfile.ScopedVariable(cmd.As), dv).
 				WithValue(dexfile.ScopedVariable("INDEX"), i)
-			if err := exec(cmd.Commands); err != nil {
+			if err := exec(cmd.Commands, append(LocalCopts, llb.WithCustomNamef("FOR [%s=%s]", cmd.As, dv))...); err != nil {
 				return err
 			}
 		}

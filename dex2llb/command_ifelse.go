@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/dexnore/dexfile/instructions/converter"
@@ -182,7 +183,7 @@ func startProcess(ctx context.Context, ctr gwclient.Container, timeout *time.Dur
 	return err, false
 }
 
-func handleIfElse(ctx context.Context, d *dispatchState, cmd converter.ConditionIfElse, exec func([]converter.Command) error, opt dispatchOpt) (err error) {
+func handleIfElse(ctx context.Context, d *dispatchState, cmd converter.ConditionIfElse, exec func([]converter.Command, ...llb.ConstraintsOpt) error, opt dispatchOpt, copts ...llb.ConstraintsOpt) (err error) {
 	var errs error
 	if cmd.ConditionIF == nil || cmd.ConditionIF.Condition == nil {
 		return errors.New("'if' condition cannot be nil")
@@ -204,20 +205,21 @@ func handleIfElse(ctx context.Context, d *dispatchState, cmd converter.Condition
 		ctr.Release(ctx)
 	}()
 
-	ifElseID := identity.NewID()
-	dClone := d.Clone()
-	defer func() {
-		if opt.llbCaps.Supports(pb.CapMergeOp) == nil {
-			d.state = llb.Merge([]llb.State{d.state, llb.Diff(d.state, dClone.state)}, llb.WithCaps(*opt.llbCaps), llb.ProgressGroup(ifElseID, "IF/ELSE ==> "+cmd.String(), true))
-		} else {
-			d.state = d.state.File(llb.Copy(dClone.state, "/", "/"),  llb.WithCaps(*opt.llbCaps), llb.ProgressGroup(ifElseID, "IF/ELSE ==> "+cmd.String(), true))
+	var (
+		i int = 0
+		block converter.Command = cmd.ConditionIF
+		ifElseID = identity.NewID()
+		localCopts = []llb.ConstraintsOpt{
+			llb.WithCaps(*opt.llbCaps), 
+			llb.ProgressGroup(ifElseID, "IF/ELSE ==> "+cmd.String(), false),
 		}
-	}()
+		LocalCopts = append(copts, localCopts...)
+	)
 
 forloop:
-	for i, block := range conds {
+	for i, block = range conds {
 		if block == nil && i > 0 { // else condition (not 'else if')
-			return exec(cmd.ConditionElse[i-1].Commands)
+			return exec(cmd.ConditionElse[i-1].Commands, localCopts...)
 		}
 
 		ds, dOpt := d.Clone(), opt.Clone()
@@ -227,12 +229,11 @@ forloop:
 			if err != nil {
 				return err
 			}
-			if err = dispatch(ctx, ds, dc, dOpt); err != nil {
+			if err = dispatch(ctx, ds, dc, dOpt, localCopts...); err != nil {
 				return err
 			}
 		case *converter.CommandExec:
-			copts := []llb.ConstraintsOpt{llb.WithCaps(*dOpt.llbCaps), llb.ProgressGroup(ifElseID, "IF/ELSE ==> " + cond.String(), true)}
-			def, err := ds.state.Marshal(ctx, copts...)
+			def, err := ds.state.Marshal(ctx)
 			if err != nil {
 				return err
 			}
@@ -251,12 +252,12 @@ forloop:
 			if err != nil {
 				return err
 			}
-			err = dispatch(ctx, ds, ic, dOpt)
+			err = dispatch(ctx, ds, ic, dOpt, localCopts...)
 			if err != nil {
 				return err
 			}
 
-			def, err = ds.state.Marshal(ctx, copts...)
+			def, err = ds.state.Marshal(ctx)
 			if err != nil {
 				return err
 			}
@@ -285,17 +286,17 @@ forloop:
 			}
 
 			if i == 0 {
-				return exec(cmd.ConditionIF.Commands)
+				return exec(cmd.ConditionIF.Commands, localCopts...)
 			} else {
-				return exec(cmd.ConditionElse[i-1].Commands)
+				return exec(cmd.ConditionElse[i-1].Commands, localCopts...)
 			}
 		case *converter.CommandBuild:
-			bs, err := dispatchBuild(ctx, *cond, opt)
+			bs, err := dispatchBuild(ctx, *cond, opt, localCopts...)
 			if err != nil {
 				return err
 			}
 
-			def, err := bs.state.Marshal(ctx, llb.ProgressGroup(ifElseID, "IF/ELSE ==> " + cond.String(), true))
+			def, err := bs.state.Marshal(ctx)
 			if err != nil {
 				return err
 			}
@@ -311,19 +312,15 @@ forloop:
 			}
 
 			if i == 0 {
-				return exec(cmd.ConditionIF.Commands)
+				return exec(cmd.ConditionIF.Commands, localCopts...)
 			} else {
-				return exec(cmd.ConditionElse[i-1].Commands)
+				return exec(cmd.ConditionElse[i-1].Commands, localCopts...)
 			}
 		default:
 			return fmt.Errorf("unsupported conditional subcommand: %s", cond.Name())
 		}
 
-		pgName := cmd.String()
-		if block, ok := block.(interface{ String() string }); ok {
-			pgName = block.String()
-		}
-		def, err := ds.state.Marshal(ctx, llb.ProgressGroup(ifElseID, "IF/ELSE ==> " + pgName, true))
+		def, err := ds.state.Marshal(ctx)
 		if err != nil {
 			return err
 		}
@@ -344,7 +341,7 @@ forloop:
 			return parser.WithLocation(errors.New("no conditional statement found"), block.Location())
 		}
 
-		ddef, err := d.state.Marshal(ctx, llb.ProgressGroup(ifElseID, "IF/ELSE ==> " + pgName, true))
+		ddef, err := d.state.Marshal(ctx)
 		if err != nil {
 			return err
 		}
@@ -375,9 +372,9 @@ forloop:
 			}
 
 			if i == 0 {
-				return exec(cmd.ConditionIF.Commands)
+				return exec(cmd.ConditionIF.Commands, localCopts...)
 			} else {
-				return exec(cmd.ConditionElse[i-1].Commands)
+				return exec(cmd.ConditionElse[i-1].Commands, localCopts...)
 			}
 		}
 
@@ -396,10 +393,10 @@ forloop:
 
 		var returnErr bool
 		err, returnErr = startProcess(ctx, ctr, timeout, *execop, func() error {
-			dClone.state = dClone.state.
-				AddEnv("STDOUT", stdout.String()).
-				AddEnv("STDERR", stderr.String())
-			return exec(conditionalCommands)
+			d.state = d.state.
+				AddEnv("STDOUT", stripNewlineSuffix(stdout.String())[0]).
+				AddEnv("STDERR", stripNewlineSuffix(stderr.String())[0])
+			return exec(conditionalCommands, LocalCopts...)
 		}, &nopCloser{stdout}, &nopCloser{stderr})
 		if returnErr {
 			return err
@@ -408,9 +405,16 @@ forloop:
 		continue forloop
 	}
 
-	if errs == nil || len(conds) == 1 { // NOTE: if no else condition => skip if condition error
+	if errs == nil || conds[len(conds) - 1] != nil { // NOTE: if no 'else' condition => skip error
 		return nil
 	}
 
 	return fmt.Errorf("all conditions failed: %w", errs)
+}
+
+func stripNewlineSuffix(s string) []string {
+    if strings.HasSuffix(s, "\n") {
+        return strings.Split(s, "\n")
+    }
+    return []string{s}
 }

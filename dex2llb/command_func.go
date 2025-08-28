@@ -12,7 +12,7 @@ import (
 	"github.com/moby/buildkit/solver/pb"
 )
 
-func dispatchFunction(ctx context.Context, d *dispatchState, cmd converter.Function, opt dispatchOpt) (err error) {
+func dispatchFunction(ctx context.Context, d *dispatchState, cmd converter.Function, opt dispatchOpt,  copts ...llb.ConstraintsOpt) (err error) {
 	defer func() {
 		if err != nil {
 			err = parser.WithLocation(err, cmd.Location())
@@ -20,7 +20,7 @@ func dispatchFunction(ctx context.Context, d *dispatchState, cmd converter.Funct
 	}()
 	if cmd.Action != nil {
 		if strings.EqualFold(*cmd.Action, "call") {
-			return handleFunctionCall(ctx, cmd, d, opt)
+			return handleFunctionCall(ctx, cmd, d, opt, copts...)
 		}
 
 		return fmt.Errorf("unsupported function action: %q", *cmd.Action)
@@ -28,7 +28,7 @@ func dispatchFunction(ctx context.Context, d *dispatchState, cmd converter.Funct
 	return handleFunctionDefination(cmd, opt)
 }
 
-func handleFunctionCall(ctx context.Context, cmd converter.Function, d *dispatchState, opt dispatchOpt) error {
+func handleFunctionCall(ctx context.Context, cmd converter.Function, d *dispatchState, opt dispatchOpt, copts ...llb.ConstraintsOpt) error {
 	var (
 		function *converter.Function
 		ok       bool
@@ -47,20 +47,22 @@ func handleFunctionCall(ctx context.Context, cmd converter.Function, d *dispatch
 		if err != nil {
 			return err
 		}
-		if err := dispatch(ctx, ds, cmd, dOpt); err != nil {
+		if err := dispatch(ctx, ds, cmd, dOpt, copts...); err != nil {
 			return err
 		}
 	}
 
-	copt := []llb.ConstraintsOpt{
+	localCopt := []llb.ConstraintsOpt{
 		llb.WithCaps(*dOpt.llbCaps),
 		llb.WithCustomNamef("FUNC CALL %s", cmd.FuncName),
 	}
 
+	LocalCopts := append(copts, localCopt...)
+
 	if opt.llbCaps.Supports(pb.CapMergeOp) == nil {
-		d.state = llb.Merge([]llb.State{d.state, llb.Diff(d.state, ds.state , copt...)})
+		d.state = llb.Merge([]llb.State{d.state, llb.Diff(d.state, ds.state , LocalCopts...)})
 	} else {
-		d.state = d.state.File(llb.Copy(ds.state, "/", "/"), copt...)
+		d.state = d.state.File(llb.Copy(ds.state, "/", "/"), LocalCopts...)
 	}
 	return nil
 }

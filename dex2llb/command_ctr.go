@@ -12,6 +12,7 @@ import (
 	"github.com/dexnore/dexfile/instructions/parser"
 	"github.com/moby/buildkit/client/llb"
 	"github.com/moby/buildkit/frontend/gateway/client"
+	"github.com/moby/buildkit/identity"
 	"github.com/moby/buildkit/solver/pb"
 	"github.com/pkg/errors"
 )
@@ -21,7 +22,7 @@ var (
 	ARG_STDERR = dexfile.ScopedVariable("STDERR")
 )
 
-func dispatchCtr(ctx context.Context, d *dispatchState, ctr converter.CommandConatainer, opt dispatchOpt) (err error) {
+func dispatchCtr(ctx context.Context, d *dispatchState, ctr converter.CommandConatainer, opt dispatchOpt, copts ...llb.ConstraintsOpt) (err error) {
 	st := d.state
 	if ctr.From != "" {
 		index, err := strconv.Atoi(ctr.From)
@@ -40,12 +41,18 @@ func dispatchCtr(ctx context.Context, d *dispatchState, ctr converter.CommandCon
 			st = stn.state
 		}
 	}
+	ctrID := identity.NewID()
+	localCopts := []llb.ConstraintsOpt{
+		llb.WithCaps(*opt.llbCaps),
+		llb.ProgressGroup(ctrID, ctr.String(), false),
+	}
+	LocalCopts := append(copts, localCopts...)
 	cwd, err := st.GetDir(ctx)
 	if err != nil || cwd == "" {
 		st = st.Dir("/")
 	}
 
-	def, err := st.Marshal(ctx)
+	def, err := st.Marshal(ctx, append(LocalCopts, llb.WithCustomNamef("creating custom container [%s]", ctr.From))...)
 	if err != nil {
 		return err
 	}
@@ -91,7 +98,7 @@ func dispatchCtr(ctx context.Context, d *dispatchState, ctr converter.CommandCon
 			if err != nil {
 				return parser.WithLocation(err, cmd.Location())
 			}
-			if err := dispatch(ctx, d, dc, opt); err != nil {
+			if err := dispatch(ctx, d, dc, opt, LocalCopts...); err != nil {
 				return parser.WithLocation(err, dc.Location())
 			}
 		default:
@@ -99,7 +106,7 @@ func dispatchCtr(ctx context.Context, d *dispatchState, ctr converter.CommandCon
 			if err != nil {
 				return parser.WithLocation(err, cmd.Location())
 			}
-			if err := dispatch(ctx, d, dc, opt); err != nil {
+			if err := dispatch(ctx, d, dc, opt, LocalCopts...); err != nil {
 				return parser.WithLocation(err, dc.Location())
 			}
 		}
@@ -131,8 +138,8 @@ func handleProc(ctx context.Context, d *dispatchState, cmd *converter.CommandPro
 	defer func() {
 		*ctr.State = llb.NewState(d.state.Output())
 		d.state = st.
-			WithValue(ARG_STDOUT, stdout.String()).
-			WithValue(ARG_STDERR, stderr.String())
+			WithValue(ARG_STDOUT, stripNewlineSuffix(stdout.String())[0]).
+			WithValue(ARG_STDERR, stripNewlineSuffix(stderr.String())[0])
 	}()
 	err = cmd.RUN.Expand(func(word string) (string, error) {
 		shlex := opt.shlex
@@ -149,7 +156,7 @@ func handleProc(ctx context.Context, d *dispatchState, cmd *converter.CommandPro
 	if err != nil {
 		return err, false
 	}
-	err = dispatchRun(d, &cmd.RUN, opt.proxyEnv, dc.sources, opt)
+	err = dispatchRun(d, &cmd.RUN, opt.proxyEnv, dc.sources, opt, llb.WithCustomNamef("%s", cmd.String()))
 	if err != nil {
 		return err, false
 	}
@@ -180,9 +187,7 @@ func handleProc(ctx context.Context, d *dispatchState, cmd *converter.CommandPro
 		return err, false
 	}
 
-	defer func() {
-		gwctr.Release(ctx)
-	}()
+	defer gwctr.Release(ctx)
 
 	var retErr bool
 	err, retErr = startProcess(ctx, gwctr, cmd.TimeOut, *execop, func() error {

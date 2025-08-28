@@ -26,7 +26,7 @@ var (
 	keyImageConfig  = "dexnore:dexfile::image"
 )
 
-func dispatchExec(ctx context.Context, d *dispatchState, cmd converter.CommandExec, res *client.Result, opt dispatchOpt) (err error) {
+func dispatchExec(ctx context.Context, d *dispatchState, cmd converter.CommandExec, res *client.Result, opt dispatchOpt, copts ...llb.ConstraintsOpt) (err error) {
 	defer func() {
 		if err != nil {
 			err = parser.WithLocation(err, cmd.Location())
@@ -44,11 +44,11 @@ func dispatchExec(ctx context.Context, d *dispatchState, cmd converter.CommandEx
 	if err != nil {
 		return err
 	}
-	if err := dispatch(ctx, ds, ic, dOpt); err != nil {
+	if err := dispatch(ctx, ds, ic, dOpt, copts...); err != nil {
 		return err
 	}
 
-	def, err := ds.state.Marshal(ctx)
+	def, err := ds.state.Marshal(ctx, copts...)
 	if err != nil {
 		return err
 	}
@@ -74,9 +74,7 @@ func dispatchExec(ctx context.Context, d *dispatchState, cmd converter.CommandEx
 		return parser.WithLocation(ctrErr, cmd.Location())
 	}
 
-	defer func() {
-		ctr.Release(ctx)
-	}()
+	defer ctr.Release(ctx)
 
 	if execop.Exec != nil && execop.Exec.CdiDevices != nil {
 		return fmt.Errorf("CDI devices are not supported in [EXEC]")
@@ -159,7 +157,7 @@ func dispatchExec(ctx context.Context, d *dispatchState, cmd converter.CommandEx
 			d.image = internal.MergeDockerOCIImages(d.image, img)
 		}
 
-		d.state = llb.Merge([]llb.State{d.state, s})
+		d.state = llb.Merge([]llb.State{d.state, s}, append(copts, llb.WithCustomNamef("EXEC %s", strings.Join(cmd.RUN.CmdLine, " ")))...)
 		return nil
 	}, &nopCloser{stdout}, &nopCloser{stderr})
 	if retErr {

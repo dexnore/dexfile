@@ -2044,36 +2044,3 @@ func (emptyEnvs) Get(string) (string, bool) {
 func (emptyEnvs) Keys() []string {
 	return nil
 }
-
-type buildArgsAsEnvList []converter.KeyValuePairOptional
-func (b buildArgsAsEnvList) Get(key string) (string, bool) {
-	for _, kvp := range b {
-		if kvp.Key == key {
-			if kvp.Value == nil {
-				return "", false
-			}
-			return kvp.ValueString(), true
-		}
-	}
-
-	return "", false
-}
-
-func (b buildArgsAsEnvList) Keys() (keys []string) {
-	for _, kvp := range b {
-		keys = append(keys, kvp.Key)
-	}
-
-	return keys
-}
-
-func (b *buildArgsAsEnvList) Prepend(envlist shell.EnvGetter) {
-	for _, k := range envlist.Keys() {
-		v, ok := envlist.Get(k)
-		if ok {
-			*b = append([]converter.KeyValuePairOptional{{Key: k, Value: &v, Comment: "Prepended"}}, *b...)
-		} else {
-			*b = append([]converter.KeyValuePairOptional{{Key: k, Comment: "Prepended"}}, *b...)
-		}
-	}
-}

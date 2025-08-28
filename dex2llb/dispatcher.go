@@ -31,7 +31,7 @@ import (
 	mode "github.com/tonistiigi/dchapes-mode"
 )
 
-func dispatchEnv(d *dispatchState, c *converter.EnvCommand, lint *linter.Linter) error {
+func dispatchEnv(d *dispatchState, c *converter.EnvCommand, lint *linter.Linter, _ ...llb.ConstraintsOpt) error {
 	commitMessage := bytes.NewBufferString("ENV")
 	for _, e := range c.Env {
 		if e.NoDelim {
@@ -46,7 +46,7 @@ func dispatchEnv(d *dispatchState, c *converter.EnvCommand, lint *linter.Linter)
 	return commitToHistory(&d.image, commitMessage.String(), false, nil, d.epoch)
 }
 
-func dispatchRun(d *dispatchState, c *converter.RunCommand, proxy *llb.ProxyEnv, sources []*dispatchState, dopt dispatchOpt) error {
+func dispatchRun(d *dispatchState, c *converter.RunCommand, proxy *llb.ProxyEnv, sources []*dispatchState, dopt dispatchOpt, copts ...llb.ConstraintsOpt) error {
 	var opt []llb.RunOption
 
 	customname := c.String()
@@ -174,7 +174,7 @@ func dispatchRun(d *dispatchState, c *converter.RunCommand, proxy *llb.ProxyEnv,
 	shlex.RawQuotes = true
 	shlex.SkipUnsetEnv = true
 
-	pl, err := d.state.GetPlatform(context.TODO())
+	pl, err := d.state.GetPlatform(context.TODO(), copts...)
 	if err != nil {
 		return err
 	}
@@ -200,7 +200,7 @@ func dispatchRun(d *dispatchState, c *converter.RunCommand, proxy *llb.ProxyEnv,
 	return commitToHistory(&d.image, "RUN "+runCommandString(args, d.buildArgs, env), true, &d.state, d.epoch)
 }
 
-func dispatchWorkdir(d *dispatchState, c *converter.WorkdirCommand, commit bool, opt *dispatchOpt) error {
+func dispatchWorkdir(d *dispatchState, c *converter.WorkdirCommand, commit bool, opt *dispatchOpt, copts ...llb.ConstraintsOpt) error {
 	if commit {
 		// This linter rule checks if workdir has been set to an absolute value locally
 		// within the current dockerfile. Absolute paths in base images are ignored
@@ -247,10 +247,13 @@ func dispatchWorkdir(d *dispatchState, c *converter.WorkdirCommand, commit bool,
 				platform = *d.platform
 			}
 			env := getEnv(d.state)
-			d.state = d.state.File(llb.Mkdir(wd, 0755, mkdirOpt...),
-				llb.WithCustomName(prefixCommand(d, uppercaseCmd(processCmdEnv(opt.shlex, c.String(), env)), d.prefixPlatform, &platform, env)),
-				location(opt.sourceMap, c.Location()),
-				llb.Platform(*d.platform),
+			d.state = d.state.File(llb.Mkdir(wd, 0755, mkdirOpt...), 
+				append(
+					copts, 
+					llb.WithCustomName(prefixCommand(d, uppercaseCmd(processCmdEnv(opt.shlex, c.String(), env)), d.prefixPlatform, &platform, env)),
+					location(opt.sourceMap, c.Location()),
+					llb.Platform(*d.platform),
+				)...
 			)
 			withLayer = true
 		}
@@ -259,7 +262,7 @@ func dispatchWorkdir(d *dispatchState, c *converter.WorkdirCommand, commit bool,
 	return nil
 }
 
-func dispatchCopy(d *dispatchState, cfg copyConfig) error {
+func dispatchCopy(d *dispatchState, cfg copyConfig, copts ...llb.ConstraintsOpt) error {
 	dest, err := pathRelativeToWorkingDir(d.state, cfg.params.DestPath, *d.platform)
 	if err != nil {
 		return err
@@ -515,9 +518,9 @@ func dispatchCopy(d *dispatchState, cfg copyConfig) error {
 		d.cmdIndex--
 		mergeOpts = append(mergeOpts, llb.ProgressGroup(pgID, pgName, false), llb.WithCustomName(prefixCommand(d, "LINK "+name, d.prefixPlatform, &platform, env)))
 
-		d.state = d.state.WithOutput(llb.Merge([]llb.State{d.state, llb.Scratch().File(a, copyOpts...)}, mergeOpts...).Output())
+		d.state = d.state.WithOutput(llb.Merge([]llb.State{d.state, llb.Scratch().File(a, append(copts, copyOpts...)...)}, append(copts,mergeOpts...)...).Output())
 	} else {
-		d.state = d.state.File(a, fileOpt...)
+		d.state = d.state.File(a, append(copts, fileOpt...)...)
 	}
 
 	return commitToHistory(&d.image, commitMessage.String(), true, &d.state, d.epoch)
@@ -541,12 +544,12 @@ type copyConfig struct {
 	unpack          *bool
 }
 
-func dispatchMaintainer(d *dispatchState, c *converter.MaintainerCommand) error {
+func dispatchMaintainer(d *dispatchState, c *converter.MaintainerCommand, _ ...llb.ConstraintsOpt) error {
 	d.image.Author = c.Maintainer
 	return commitToHistory(&d.image, fmt.Sprintf("MAINTAINER %v", c.Maintainer), false, nil, d.epoch)
 }
 
-func dispatchLabel(d *dispatchState, c *converter.LabelCommand, lint *linter.Linter) error {
+func dispatchLabel(d *dispatchState, c *converter.LabelCommand, lint *linter.Linter, _ ...llb.ConstraintsOpt) error {
 	commitMessage := bytes.NewBufferString("LABEL")
 	if d.image.Config.Labels == nil {
 		d.image.Config.Labels = make(map[string]string, len(c.Labels))
@@ -562,12 +565,12 @@ func dispatchLabel(d *dispatchState, c *converter.LabelCommand, lint *linter.Lin
 	return commitToHistory(&d.image, commitMessage.String(), false, nil, d.epoch)
 }
 
-func dispatchOnbuild(d *dispatchState, c *converter.OnbuildCommand) error {
+func dispatchOnbuild(d *dispatchState, c *converter.OnbuildCommand, _ ...llb.ConstraintsOpt) error {
 	d.image.Config.OnBuild = append(d.image.Config.OnBuild, c.Expression)
 	return nil
 }
 
-func dispatchCmd(d *dispatchState, c *converter.CmdCommand, lint *linter.Linter) error {
+func dispatchCmd(d *dispatchState, c *converter.CmdCommand, lint *linter.Linter, _ ...llb.ConstraintsOpt) error {
 	validateUsedOnce(c, &d.cmd, lint)
 
 	var args = c.CmdLine
@@ -583,7 +586,7 @@ func dispatchCmd(d *dispatchState, c *converter.CmdCommand, lint *linter.Linter)
 	return commitToHistory(&d.image, fmt.Sprintf("CMD %q", args), false, nil, d.epoch)
 }
 
-func dispatchEntrypoint(d *dispatchState, c *converter.EntrypointCommand, lint *linter.Linter) error {
+func dispatchEntrypoint(d *dispatchState, c *converter.EntrypointCommand, lint *linter.Linter, _ ...llb.ConstraintsOpt) error {
 	validateUsedOnce(c, &d.entrypoint, lint)
 
 	var args = c.CmdLine
@@ -601,7 +604,7 @@ func dispatchEntrypoint(d *dispatchState, c *converter.EntrypointCommand, lint *
 	return commitToHistory(&d.image, fmt.Sprintf("ENTRYPOINT %q", args), false, nil, d.epoch)
 }
 
-func dispatchHealthcheck(d *dispatchState, c *converter.HealthCheckCommand, lint *linter.Linter) error {
+func dispatchHealthcheck(d *dispatchState, c *converter.HealthCheckCommand, lint *linter.Linter, _ ...llb.ConstraintsOpt) error {
 	validateUsedOnce(c, &d.healthcheck, lint)
 	d.image.Config.Healthcheck = &dockerspec.HealthcheckConfig{
 		Test:          c.Health.Test,
@@ -614,7 +617,7 @@ func dispatchHealthcheck(d *dispatchState, c *converter.HealthCheckCommand, lint
 	return commitToHistory(&d.image, fmt.Sprintf("HEALTHCHECK %q", d.image.Config.Healthcheck), false, nil, d.epoch)
 }
 
-func dispatchExpose(d *dispatchState, c *converter.ExposeCommand, shlex *shell.Lex) error {
+func dispatchExpose(d *dispatchState, c *converter.ExposeCommand, shlex *shell.Lex, _ ...llb.ConstraintsOpt) error {
 	ports := []string{}
 	env := getEnv(d.state)
 	for _, p := range c.Ports {
@@ -641,7 +644,7 @@ func dispatchExpose(d *dispatchState, c *converter.ExposeCommand, shlex *shell.L
 	return commitToHistory(&d.image, fmt.Sprintf("EXPOSE %v", ps), false, nil, d.epoch)
 }
 
-func dispatchUser(d *dispatchState, c *converter.UserCommand, commit bool) error {
+func dispatchUser(d *dispatchState, c *converter.UserCommand, commit bool, _ ...llb.ConstraintsOpt) error {
 	d.state = d.state.User(c.User)
 	d.image.Config.User = c.User
 	if commit {
@@ -650,7 +653,7 @@ func dispatchUser(d *dispatchState, c *converter.UserCommand, commit bool) error
 	return nil
 }
 
-func dispatchVolume(d *dispatchState, c *converter.VolumeCommand) error {
+func dispatchVolume(d *dispatchState, c *converter.VolumeCommand, _ ...llb.ConstraintsOpt) error {
 	if d.image.Config.Volumes == nil {
 		d.image.Config.Volumes = map[string]struct{}{}
 	}
@@ -663,7 +666,7 @@ func dispatchVolume(d *dispatchState, c *converter.VolumeCommand) error {
 	return commitToHistory(&d.image, fmt.Sprintf("VOLUME %v", c.Volumes), false, nil, d.epoch)
 }
 
-func dispatchStopSignal(d *dispatchState, c *converter.StopSignalCommand) error {
+func dispatchStopSignal(d *dispatchState, c *converter.StopSignalCommand, _ ...llb.ConstraintsOpt) error {
 	if _, err := signal.ParseSignal(c.Signal); err != nil {
 		return err
 	}
@@ -671,12 +674,12 @@ func dispatchStopSignal(d *dispatchState, c *converter.StopSignalCommand) error 
 	return commitToHistory(&d.image, fmt.Sprintf("STOPSIGNAL %v", c.Signal), false, nil, d.epoch)
 }
 
-func dispatchShell(d *dispatchState, c *converter.ShellCommand) error {
+func dispatchShell(d *dispatchState, c *converter.ShellCommand, _ ...llb.ConstraintsOpt) error {
 	d.image.Config.Shell = c.Shell
 	return commitToHistory(&d.image, fmt.Sprintf("SHELL %v", c.Shell), false, nil, d.epoch)
 }
 
-func dispatchArg(d *dispatchState, c *converter.ArgCommand, opt *dispatchOpt) error {
+func dispatchArg(d *dispatchState, c *converter.ArgCommand, opt *dispatchOpt, _ ...llb.ConstraintsOpt) error {
 	commitStrs := make([]string, 0, len(c.Args))
 	for _, arg := range c.Args {
 		validateNoSecretKey("ARG", arg.Key, c.Location(), opt.lint)

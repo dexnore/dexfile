@@ -9,6 +9,7 @@ import (
 
 	"github.com/dexnore/dexfile/instructions/converter"
 	"github.com/dexnore/dexfile/instructions/parser"
+	"github.com/moby/buildkit/client/llb"
 	"github.com/moby/buildkit/frontend/dockerfile/shell"
 	"github.com/moby/buildkit/frontend/gateway/client"
 	"github.com/moby/patternmatcher"
@@ -17,7 +18,7 @@ import (
 
 type Dispatcher func(d *dispatchState, cmd command, opt dispatchOpt) error
 
-func dispatch(ctx context.Context, d *dispatchState, cmd command, opt dispatchOpt) (err error) {
+func dispatch(ctx context.Context, d *dispatchState, cmd command, opt dispatchOpt, copts ...llb.ConstraintsOpt) (err error) {
 	d.cmdIsOnBuild = cmd.isOnBuild
 	// ARG command value could be ignored, so defer handling the expansion error
 	_, isArg := cmd.Command.(*converter.ArgCommand)
@@ -51,13 +52,13 @@ func dispatch(ctx context.Context, d *dispatchState, cmd command, opt dispatchOp
 
 	switch c := cmd.Command.(type) {
 	case *converter.MaintainerCommand:
-		return dispatchMaintainer(d, c)
+		return dispatchMaintainer(d, c, copts...)
 	case *converter.EnvCommand:
-		return dispatchEnv(d, c, opt.lint)
+		return dispatchEnv(d, c, opt.lint, copts...)
 	case *converter.RunCommand:
-		return dispatchRun(d, c, opt.proxyEnv, cmd.sources, opt)
+		return dispatchRun(d, c, opt.proxyEnv, cmd.sources, opt, copts...)
 	case *converter.WorkdirCommand:
-		return dispatchWorkdir(d, c, true, &opt)
+		return dispatchWorkdir(d, c, true, &opt, copts...)
 	case *converter.AddCommand:
 		err = dispatchCopy(d, copyConfig{
 			params:          c.SourcesAndDest,
@@ -74,7 +75,7 @@ func dispatch(ctx context.Context, d *dispatchState, cmd command, opt dispatchOp
 			location:        c.Location(),
 			ignoreMatcher:   opt.dexnoreMatcher,
 			opt:             opt,
-		})
+		}, copts...)
 		if err == nil {
 			for _, src := range c.SourcePaths {
 				if !strings.HasPrefix(src, "http://") && !strings.HasPrefix(src, "https://") {
@@ -84,27 +85,27 @@ func dispatch(ctx context.Context, d *dispatchState, cmd command, opt dispatchOp
 		}
 		return err
 	case *converter.LabelCommand:
-		return dispatchLabel(d, c, opt.lint)
+		return dispatchLabel(d, c, opt.lint, copts...)
 	case *converter.OnbuildCommand:
-		return dispatchOnbuild(d, c)
+		return dispatchOnbuild(d, c, copts...)
 	case *converter.CmdCommand:
-		return dispatchCmd(d, c, opt.lint)
+		return dispatchCmd(d, c, opt.lint, copts...)
 	case *converter.EntrypointCommand:
-		return dispatchEntrypoint(d, c, opt.lint)
+		return dispatchEntrypoint(d, c, opt.lint, copts...)
 	case *converter.HealthCheckCommand:
-		return dispatchHealthcheck(d, c, opt.lint)
+		return dispatchHealthcheck(d, c, opt.lint, copts...)
 	case *converter.ExposeCommand:
-		return dispatchExpose(d, c, opt.shlex)
+		return dispatchExpose(d, c, opt.shlex, copts...)
 	case *converter.UserCommand:
-		return dispatchUser(d, c, true)
+		return dispatchUser(d, c, true, copts...)
 	case *converter.VolumeCommand:
-		return dispatchVolume(d, c)
+		return dispatchVolume(d, c, copts...)
 	case *converter.StopSignalCommand:
-		return dispatchStopSignal(d, c)
+		return dispatchStopSignal(d, c, copts...)
 	case *converter.ShellCommand:
-		return dispatchShell(d, c)
+		return dispatchShell(d, c, copts...)
 	case *converter.ArgCommand:
-		return dispatchArg(d, c, &opt)
+		return dispatchArg(d, c, &opt, copts...)
 	case *converter.CopyCommand:
 		l := opt.buildContext
 		var ignoreMatcher *patternmatcher.PatternMatcher
@@ -130,7 +131,7 @@ func dispatch(ctx context.Context, d *dispatchState, cmd command, opt dispatchOp
 			location:        c.Location(),
 			ignoreMatcher:   ignoreMatcher,
 			opt:             opt,
-		})
+		}, copts...)
 		if err == nil {
 			if len(cmd.sources) == 0 {
 				for _, src := range c.SourcePaths {
@@ -150,7 +151,7 @@ func dispatch(ctx context.Context, d *dispatchState, cmd command, opt dispatchOp
 	case *converter.CommandExec:
 		var res = c.Result
 		if c.Result == nil {
-			def, err := d.state.Marshal(ctx)
+			def, err := d.state.Marshal(ctx, copts...)
 			if err != nil {
 				return parser.WithLocation(err, cmd.Location())
 			}
@@ -164,39 +165,39 @@ func dispatch(ctx context.Context, d *dispatchState, cmd command, opt dispatchOp
 				return parser.WithLocation(err, cmd.Location())
 			}
 		}
-		return dispatchExec(ctx, d, *c, res, opt)
+		return dispatchExec(ctx, d, *c, res, opt, copts...)
 	case *converter.ConditionIfElse:
-		return handleIfElse(ctx, d, *c, func(nc []converter.Command) error {
+		return handleIfElse(ctx, d, *c, func(nc []converter.Command, copts ...llb.ConstraintsOpt) error {
 			for _, cmd := range nc {
 				ic, err := toCommand(cmd, opt.allDispatchStates)
 				if err != nil {
 					return parser.WithLocation(err, cmd.Location())
 				}
-				if err := dispatch(ctx, d, ic, opt); err != nil {
+				if err := dispatch(ctx, d, ic, opt, copts...); err != nil {
 					return parser.WithLocation(err, cmd.Location())
 				}
 			}
 			return nil
-		}, opt)
+		}, opt, copts...)
 	case *converter.CommandFor:
-		return handleForLoop(ctx, d, *c, func(nc []converter.Command) error {
+		return handleForLoop(ctx, d, *c, func(nc []converter.Command, copts ...llb.ConstraintsOpt) error {
 			for _, cmd := range nc {
 				cmd, err := toCommand(cmd, opt.allDispatchStates)
 				if err != nil {
 					return parser.WithLocation(err, cmd.Location())
 				}
-				if err := dispatch(ctx, d, cmd, opt); err != nil {
+				if err := dispatch(ctx, d, cmd, opt, copts...); err != nil {
 					return parser.WithLocation(err, cmd.Location())
 				}
 			}
 			return nil
-		}, opt)
+		}, opt, copts...)
 	case *converter.CommandConatainer:
-		return dispatchCtr(ctx, d, *c, opt)
+		return dispatchCtr(ctx, d, *c, opt, copts...)
 	case *converter.Function:
-		return dispatchFunction(ctx, d, *c, opt)
+		return dispatchFunction(ctx, d, *c, opt, copts...)
 	case *converter.CommandBuild:
-		d, err = dispatchBuild(ctx, *c, opt)
+		d, err = dispatchBuild(ctx, *c, opt, copts...)
 		return err
 	default:
 		return fmt.Errorf("unknown dispatcher command: %w", &converter.UnknownInstructionError{Instruction: c.Name(), Line: c.Location()[0].Start.Line})
