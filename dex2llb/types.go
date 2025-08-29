@@ -183,6 +183,9 @@ type dispatchOpt struct {
 	solver            dexfile.Solver
 	buildClient       dexfile.BuildClient
 	mainContext       *llb.State
+	stageResolver     *stageResolver
+	convertOpt		  dexfile.ConvertOpt
+	mutableBuildContextOutput *mutableDexfileOutput
 }
 
 func (o dispatchOpt) Clone() dispatchOpt {
@@ -246,6 +249,9 @@ func (o dispatchOpt) Clone() dispatchOpt {
 		buildClient:       o.buildClient,
 		mainContext:       mainContext,
 		functions:         maps.Clone(o.functions),
+		stageResolver: o.stageResolver,
+		convertOpt: o.convertOpt,
+		mutableBuildContextOutput: o.mutableBuildContextOutput,
 	}
 }
 

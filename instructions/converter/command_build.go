@@ -17,7 +17,6 @@ func parseBuild(req parseRequest) (cmdBuild *CommandBuild, err error) {
 		return nil, fmt.Errorf("BUILD requires single argument")
 	}
 
-	cmdBuild.Stage = req.args[0]
 	cmdBuild.Args = make([]KeyValuePairOptional, len(req.flags.Args))
 	if err := req.flags.MustParse(); err != nil {
 		return nil, err
@@ -47,5 +46,6 @@ func parseBuild(req parseRequest) (cmdBuild *CommandBuild, err error) {
 		}
 	}
 
+	cmdBuild.Stage = req.args[0]
 	return cmdBuild, nil
 }
