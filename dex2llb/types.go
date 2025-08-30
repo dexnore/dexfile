@@ -256,38 +256,38 @@ func (o dispatchOpt) Clone() dispatchOpt {
 }
 
 func (dss dispatchStates) Clone() dispatchStates {
-	var (
-		stagesByName = cloneDispatchStatesByName(dss.statesByName)
-		immutableStagesByName = cloneDispatchStatesByName(dss.immutableStatesByName)
-
-		states = cloneDispatchStateSlice(dss.states)
-		immutableStates = cloneDispatchStateSlice(dss.immutableStates)
-	)
-
+	states, statesByName := dispatchStateCloneStates(dss.states, dss.statesByName) 
+	immutableStates, immutableStatesByName := dispatchStateCloneStates(dss.immutableStates, dss.immutableStatesByName)
 	return dispatchStates{
 		states:       states,
-		statesByName: stagesByName,
+		statesByName: statesByName,
 		immutableStates: immutableStates,
-		immutableStatesByName: immutableStagesByName,
+		immutableStatesByName: immutableStatesByName,
 	}
 }
 
-func cloneDispatchStatesByName(dss map[string]*dispatchState) map[string]*dispatchState {
-	var dssClone = make(map[string]*dispatchState, len(dss))
+func dispatchStateCloneStates(ds []*dispatchState, dss map[string]*dispatchState) ([]*dispatchState, map[string]*dispatchState) {
+	var ds_clone = make([]*dispatchState, len(ds))
+	var dss_clone = make(map[string]*dispatchState, len(dss))
+
 	for k, v := range dss {
 		if v == nil {
-			dssClone[k] = nil
+			dss_clone[k] = nil
 			continue
 		}
-		dssClone[k] = v.Clone()
+		dss_clone[k] = v.Clone()
+		for i, p := range ds {
+			if p == v {
+				ds_clone[i] = dss_clone[k]
+				break
+			}
+		}
 	}
-	return dssClone
-}
+	for i, p := range ds_clone {
+		if p == nil {
+			ds_clone[i] = ds[i].Clone()
+		}
+	}
 
-func cloneDispatchStateSlice(ds []*dispatchState) []*dispatchState {
-	var dsClone = make([]*dispatchState, len(ds))
-	for _, d := range ds {
-		dsClone = append(dsClone, d.Clone())
-	}
-	return dsClone
+	return ds_clone, dss_clone
 }

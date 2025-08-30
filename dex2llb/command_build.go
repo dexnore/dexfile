@@ -12,27 +12,21 @@ import (
 func dispatchBuild(ctx context.Context, cmd converter.CommandBuild, opt dispatchOpt,  copts ...llb.ConstraintsOpt) (buildState *dispatchState, err error) {
 	dOpt := opt.Clone()
 	dss := dOpt.allDispatchStates
-	dss.states = cloneDispatchStateSlice(dss.immutableStates)
-	dss.statesByName = cloneDispatchStatesByName(dss.immutableStatesByName)
+	dss.states, dss.statesByName = dispatchStateCloneStates(dss.immutableStates, dss.immutableStatesByName)
 	buildState, ok := dss.findStateByName(cmd.Stage)
 	if !ok {
 		return nil, parser.WithLocation(fmt.Errorf("no stage found with name %q", cmd.Stage), cmd.Location())
 	}
-	// buildState.opt = opt
 
-	// buildID := identity.NewID()
-	// localCopts := []llb.ConstraintsOpt{
-	// 	llb.WithCaps(*opt.llbCaps),
-	// 	llb.ProgressGroup(buildID, cmd.String(), false),
-	// }
+	for i, p := range dss.states {
+		if p == buildState {
+			return nil, fmt.Errorf("state found at %d, \n%+v", i, p)
+		}
+	}
 
-	// for _, cmd := range buildState.StageCommands() {
-	// 	ic, err := toCommand(cmd, opt.allDispatchStates)
-	// 	if err != nil {
-	// 		return nil, err
-	// 	}
-	// 	buildState.commands = append(buildState.commands, ic)
-	// }
+	return nil, fmt.Errorf("state not found\n %+v\n\n %+v", dss.states, dss.statesByName)
+
+	buildState.opt = dOpt
 	buildState.buildArgs = append(buildState.buildArgs, cmd.Args...)
 	buildState, _, err = solveStage(ctx, buildState, opt.mutableBuildContextOutput, dOpt)
 	return nil, fmt.Errorf(

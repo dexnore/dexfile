@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"path"
 	"path/filepath"
+	"runtime"
+	"runtime/debug"
 	"strings"
 
 	"github.com/dexnore/dexfile/instructions/converter"
@@ -19,6 +21,12 @@ import (
 type Dispatcher func(d *dispatchState, cmd command, opt dispatchOpt) error
 
 func dispatch(ctx context.Context, d *dispatchState, cmd command, opt dispatchOpt, copts ...llb.ConstraintsOpt) (breakCmd bool, err error) {
+	defer func () {
+		if r := recover(); r != nil {
+			_, file, loc, _ := runtime.Caller(0)
+			err = fmt.Errorf("%+v\n\terror at %s:%d%w\n\n\n%+s", r, file, loc, err, debug.Stack())
+		}
+	}()
 	d.cmdIsOnBuild = cmd.isOnBuild
 	// ARG command value could be ignored, so defer handling the expansion error
 	_, isArg := cmd.Command.(*converter.ArgCommand)
