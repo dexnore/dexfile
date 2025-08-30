@@ -14,7 +14,7 @@ func dispatchBuild(ctx context.Context, cmd converter.CommandBuild, opt dispatch
 	if !ok {
 		return nil, parser.WithLocation(fmt.Errorf("no stage found with name %q", cmd.Stage), cmd.Location())
 	}
-	buildState.opt = opt
+	// buildState.opt = opt
 
 	// buildID := identity.NewID()
 	// localCopts := []llb.ConstraintsOpt{
@@ -22,14 +22,38 @@ func dispatchBuild(ctx context.Context, cmd converter.CommandBuild, opt dispatch
 	// 	llb.ProgressGroup(buildID, cmd.String(), false),
 	// }
 
-	for _, cmd := range buildState.StageCommands() {
-		ic, err := toCommand(cmd, opt.allDispatchStates)
-		if err != nil {
-			return nil, err
-		}
-		buildState.commands = append(buildState.commands, ic)
-	}
+	// for _, cmd := range buildState.StageCommands() {
+	// 	ic, err := toCommand(cmd, opt.allDispatchStates)
+	// 	if err != nil {
+	// 		return nil, err
+	// 	}
+	// 	buildState.commands = append(buildState.commands, ic)
+	// }
 	buildState.buildArgs = append(buildState.buildArgs, cmd.Args...)
 	buildState, err = solveStage(ctx, buildState, opt.mutableBuildContextOutput, opt)
-	return nil, fmt.Errorf("%+v\n\n\n\n\n%+v\n%w", buildState, buildState.state, err)
+	return nil, fmt.Errorf(
+		`base: %+v
+
+		state: %+v
+
+		resolved: %+v
+		dispatched: %+v
+		unregistered: %+v
+		err: %w
+
+
+		commands: %+v
+
+
+		deps: %+v
+		`, 
+		buildState.base,
+		buildState.state,
+		buildState.resolved,
+		buildState.dispatched,
+		buildState.unregistered,
+		err,
+		buildState.commands,
+		buildState.deps,
+	)
 }

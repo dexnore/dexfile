@@ -70,10 +70,20 @@ func solveStage(ctx context.Context, target *dispatchState, buildContext *mutabl
 
 		d.state = d.state.Network(opt.convertOpt.Config.NetworkMode)
 		d.opt = opt
+		forloop:
 		for _, cmd := range d.commands {
-			if err = dispatch(ctx, d, cmd, opt); err != nil {
-				err = parser.WithLocation(err, cmd.Location())
-				return nil, err
+			switch cmd.Command.(type) {
+			case *converter.CommandBuild:
+				if err = dispatch(ctx, d, cmd, opt); err != nil {
+					err = parser.WithLocation(err, cmd.Location())
+					return nil, err
+				}
+				break forloop
+			default:
+				if err = dispatch(ctx, d, cmd, opt); err != nil {
+					err = parser.WithLocation(err, cmd.Location())
+					return nil, err
+				}
 			}
 		}
 
