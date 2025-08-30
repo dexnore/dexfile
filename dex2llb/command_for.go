@@ -116,7 +116,7 @@ func handleForLoop(ctx context.Context, d *dispatchState, cmd converter.CommandF
 		stderr = bytes.NewBuffer(nil)
 		returnErr bool
 	)
-	err, returnErr, breakCmd = startProcess(ctx, ctr, cmd.TimeOut, *execop, func() (bool, error) {
+	returnErr, breakCmd, err = startProcess(ctx, ctr, cmd.TimeOut, *execop, func() (bool, error) {
 		return false, nil
 	}, &nopCloser{stdout}, &nopCloser{stderr})
 	if err != nil {

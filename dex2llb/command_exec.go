@@ -86,7 +86,7 @@ func dispatchExec(ctx context.Context, d *dispatchState, cmd converter.CommandEx
 		retErr bool
 	)
 
-	err, retErr, _ = startProcess(ctx, ctr, cmd.TimeOut, *execop, func() (bool, error) {
+	retErr, _, err = startProcess(ctx, ctr, cmd.TimeOut, *execop, func() (bool, error) {
 		p := platforms.DefaultSpec()
 		if ds.platform != nil {
 			p = *ds.platform

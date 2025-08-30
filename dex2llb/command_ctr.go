@@ -197,7 +197,7 @@ func handleProc(ctx context.Context, d *dispatchState, cmd *converter.CommandPro
 	defer gwctr.Release(ctx)
 
 	var retErr bool
-	err, retErr, _ = startProcess(ctx, gwctr, cmd.TimeOut, *execop, func() (bool, error) {
+	retErr, _, err = startProcess(ctx, gwctr, cmd.TimeOut, *execop, func() (bool, error) {
 		return false, nil
 	}, &nopCloser{stdout}, &nopCloser{stderr})
 	if retErr && err != nil {

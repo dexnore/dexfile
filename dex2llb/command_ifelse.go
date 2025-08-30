@@ -152,7 +152,7 @@ type WriteCloseStringer interface {
 	String() string
 }
 
-func startProcess(ctx context.Context, ctr gwclient.Container, timeout *time.Duration, execop execOp, handleCond func() (bool, error), stdout, stderr WriteCloseStringer) (err error, retErr, buildCmd bool) {
+func startProcess(ctx context.Context, ctr gwclient.Container, timeout *time.Duration, execop execOp, handleCond func() (bool, error), stdout, stderr WriteCloseStringer) (retErr, buildCmd bool, err error) {
 	defer func() {
 		if err == nil && handleCond != nil {
 			retErr = true
@@ -174,18 +174,18 @@ func startProcess(ctx context.Context, ctr gwclient.Container, timeout *time.Dur
 	var pid gwclient.ContainerProcess
 	pid, err = startContainer(pidCtx, ctr, execop.Exec, stdout, stderr)
 	if err != nil {
-		return err, false, false
+		return false, false, err
 	}
 
 	if pid == nil {
-		return fmt.Errorf("pid is nil"), false, false
+		return false, false, fmt.Errorf("pid is nil")
 	}
 	err = pid.Wait()
 	if err != nil {
 		err = fmt.Errorf("container process failed: %w\n%s", err, stderr)
 	}
 
-	return err, false, false
+	return false, false, err
 }
 
 func handleIfElse(ctx context.Context, d *dispatchState, cmd converter.ConditionIfElse, exec func([]converter.Command, ...llb.ConstraintsOpt) (bool, error), opt dispatchOpt, copts ...llb.ConstraintsOpt) (breakCmd bool, err error) {
@@ -397,7 +397,7 @@ forloop:
 		}
 
 		var returnErr bool
-		err, returnErr, breakCmd = startProcess(ctx, ctr, timeout, *execop, func() (bool, error) {
+		returnErr, breakCmd, err = startProcess(ctx, ctr, timeout, *execop, func() (bool, error) {
 			d.state = d.state.
 				AddEnv("STDOUT", stripNewlineSuffix(stdout.String())[0]).
 				AddEnv("STDERR", stripNewlineSuffix(stderr.String())[0])
