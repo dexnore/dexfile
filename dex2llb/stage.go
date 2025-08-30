@@ -14,12 +14,12 @@ import (
 	"github.com/moby/buildkit/util/system"
 )
 
-func solveStage(ctx context.Context, target *dispatchState, buildContext *mutableDexfileOutput, opt dispatchOpt) (_ *dispatchState, err error) {
+func solveStage(ctx context.Context, target *dispatchState, buildContext *mutableDexfileOutput, opt dispatchOpt) (_ *dispatchState, breakCmd bool, err error) {
 	var platformOpt = buildPlatformOpt(&opt.convertOpt)
 
 	allReachable, err := resolveReachableStage(ctx, opt.allDispatchStates, target, opt.stageResolver)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 
 	ctxPaths := map[string]struct{}{}
@@ -59,31 +59,24 @@ func solveStage(ctx context.Context, target *dispatchState, buildContext *mutabl
 		}
 		if d.image.Config.WorkingDir != "" {
 			if err = dispatchWorkdir(d, &converter.WorkdirCommand{Path: d.image.Config.WorkingDir}, false, nil); err != nil {
-				return nil, parser.WithLocation(err, d.Location())
+				return nil, false, parser.WithLocation(err, d.Location())
 			}
 		}
 		if d.image.Config.User != "" {
 			if err = dispatchUser(d, &converter.UserCommand{User: d.image.Config.User}, false); err != nil {
-				return nil, parser.WithLocation(err, d.Location())
+				return nil, false, parser.WithLocation(err, d.Location())
 			}
 		}
 
 		d.state = d.state.Network(opt.convertOpt.Config.NetworkMode)
 		d.opt = opt
-		forloop:
 		for _, cmd := range d.commands {
-			switch cmd.Command.(type) {
-			case *converter.CommandBuild:
-				if err = dispatch(ctx, d, cmd, opt); err != nil {
-					err = parser.WithLocation(err, cmd.Location())
-					return nil, err
-				}
-				break forloop
-			default:
-				if err = dispatch(ctx, d, cmd, opt); err != nil {
-					err = parser.WithLocation(err, cmd.Location())
-					return nil, err
-				}
+			if breakCmd, err = dispatch(ctx, d, cmd, opt); err != nil {
+				err = parser.WithLocation(err, cmd.Location())
+				return d, breakCmd, err
+			}
+			if breakCmd {
+				break
 			}
 		}
 
@@ -126,7 +119,7 @@ func solveStage(ctx context.Context, target *dispatchState, buildContext *mutabl
 	// configured to return an error on warnings,
 	// so we appropriately return that error here.
 	if err := opt.lint.Error(); err != nil {
-		return nil, err
+		return nil, breakCmd, err
 	}
 
 	opts := filterPaths(ctxPaths)
@@ -134,7 +127,7 @@ func solveStage(ctx context.Context, target *dispatchState, buildContext *mutabl
 	if opt.convertOpt.BC != nil {
 		bctx, err = opt.convertOpt.BC.MainContext(ctx, opts...)
 		if err != nil {
-			return nil, err
+			return nil, breakCmd, err
 		}
 	} else if bctx == nil {
 		bctx = maincontext.DefaultMainContext(opts...)
@@ -165,5 +158,5 @@ func solveStage(ctx context.Context, target *dispatchState, buildContext *mutabl
 	}
 	target.image.Platform = platforms.Normalize(target.image.Platform)
 
-	return target, nil
+	return target, breakCmd, nil
 }

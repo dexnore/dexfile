@@ -12,7 +12,7 @@ import (
 	"github.com/moby/buildkit/solver/pb"
 )
 
-func dispatchFunction(ctx context.Context, d *dispatchState, cmd converter.Function, opt dispatchOpt,  copts ...llb.ConstraintsOpt) (err error) {
+func dispatchFunction(ctx context.Context, d *dispatchState, cmd converter.Function, opt dispatchOpt,  copts ...llb.ConstraintsOpt) (breakCmd bool, err error) {
 	defer func() {
 		if err != nil {
 			err = parser.WithLocation(err, cmd.Location())
@@ -23,18 +23,18 @@ func dispatchFunction(ctx context.Context, d *dispatchState, cmd converter.Funct
 			return handleFunctionCall(ctx, cmd, d, opt, copts...)
 		}
 
-		return fmt.Errorf("unsupported function action: %q", *cmd.Action)
+		return false, fmt.Errorf("unsupported function action: %q", *cmd.Action)
 	}
-	return handleFunctionDefination(cmd, opt)
+	return false, handleFunctionDefination(cmd, opt)
 }
 
-func handleFunctionCall(ctx context.Context, cmd converter.Function, d *dispatchState, opt dispatchOpt, copts ...llb.ConstraintsOpt) error {
+func handleFunctionCall(ctx context.Context, cmd converter.Function, d *dispatchState, opt dispatchOpt, copts ...llb.ConstraintsOpt) (breakCmd bool, err error) {
 	var (
 		function *converter.Function
 		ok       bool
 	)
 	if function, ok = opt.functions[cmd.FuncName]; !ok {
-		return fmt.Errorf("unknown function: %q", cmd.FuncName)
+		return false, fmt.Errorf("unknown function: %q", cmd.FuncName)
 	}
 
 	var funcArgs = append(function.Args, cmd.Args...)
@@ -43,12 +43,15 @@ func handleFunctionCall(ctx context.Context, cmd converter.Function, d *dispatch
 		ds.state = ds.state.AddEnv(kvp.Key, kvp.ValueString())
 	}
 	for _, cmd := range function.Commands {
-		cmd, err := toCommand(cmd, dOpt.allDispatchStates)
+		ic, err := toCommand(cmd, dOpt.allDispatchStates)
 		if err != nil {
-			return err
+			return false, err
 		}
-		if err := dispatch(ctx, ds, cmd, dOpt, copts...); err != nil {
-			return err
+		if breakCmd, err = dispatch(ctx, ds, ic, dOpt, copts...); err != nil {
+			return breakCmd, err
+		}
+		if breakCmd {
+			break
 		}
 	}
 
@@ -64,7 +67,7 @@ func handleFunctionCall(ctx context.Context, cmd converter.Function, d *dispatch
 	} else {
 		d.state = d.state.File(llb.Copy(ds.state, "/", "/"), LocalCopts...)
 	}
-	return nil
+	return breakCmd, nil
 }
 
 func handleFunctionDefination(cmd converter.Function, opt dispatchOpt) error {

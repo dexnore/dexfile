@@ -152,11 +152,16 @@ type WriteCloseStringer interface {
 	String() string
 }
 
-func startProcess(ctx context.Context, ctr gwclient.Container, timeout *time.Duration, execop execOp, handleCond func() error, stdout, stderr WriteCloseStringer) (err error, retErr bool) {
+func startProcess(ctx context.Context, ctr gwclient.Container, timeout *time.Duration, execop execOp, handleCond func() (bool, error), stdout, stderr WriteCloseStringer) (err error, retErr, buildCmd bool) {
 	defer func() {
 		if err == nil && handleCond != nil {
 			retErr = true
-			err = handleCond()
+			var delCtr bool
+			delCtr, err = handleCond()
+			if delCtr {
+				buildCmd = true
+				ctr.Release(ctx)
+			}
 		}
 	}()
 	dur := 10 * time.Minute
@@ -169,24 +174,24 @@ func startProcess(ctx context.Context, ctr gwclient.Container, timeout *time.Dur
 	var pid gwclient.ContainerProcess
 	pid, err = startContainer(pidCtx, ctr, execop.Exec, stdout, stderr)
 	if err != nil {
-		return err, false
+		return err, false, false
 	}
 
 	if pid == nil {
-		return fmt.Errorf("pid is nil"), false
+		return fmt.Errorf("pid is nil"), false, false
 	}
 	err = pid.Wait()
 	if err != nil {
 		err = fmt.Errorf("container process failed: %w\n%s", err, stderr)
 	}
 
-	return err, false
+	return err, false, false
 }
 
-func handleIfElse(ctx context.Context, d *dispatchState, cmd converter.ConditionIfElse, exec func([]converter.Command, ...llb.ConstraintsOpt) error, opt dispatchOpt, copts ...llb.ConstraintsOpt) (err error) {
+func handleIfElse(ctx context.Context, d *dispatchState, cmd converter.ConditionIfElse, exec func([]converter.Command, ...llb.ConstraintsOpt) (bool, error), opt dispatchOpt, copts ...llb.ConstraintsOpt) (breakCmd bool, err error) {
 	var errs error
 	if cmd.ConditionIF == nil || cmd.ConditionIF.Condition == nil {
-		return errors.New("'if' condition cannot be nil")
+		return false, errors.New("'if' condition cannot be nil")
 	}
 
 	conds := []converter.Command{cmd.ConditionIF.Condition}
@@ -227,15 +232,15 @@ forloop:
 		case *converter.RunCommand:
 			dc, err := toCommand(cond, dOpt.allDispatchStates)
 			if err != nil {
-				return err
+				return false, err
 			}
-			if err = dispatch(ctx, ds, dc, dOpt, localCopts...); err != nil {
-				return err
+			if _, err = dispatch(ctx, ds, dc, dOpt, localCopts...); err != nil {
+				return false, err
 			}
 		case *converter.CommandExec:
 			def, err := ds.state.Marshal(ctx)
 			if err != nil {
-				return err
+				return false, err
 			}
 
 			res, err := opt.solver.Client().Solve(ctx, gwclient.SolveRequest{
@@ -244,22 +249,22 @@ forloop:
 				CacheImports: dOpt.solver.Client().Config().CacheImports,
 			})
 			if err != nil {
-				return parser.WithLocation(err, cmd.Location())
+				return false, parser.WithLocation(err, cmd.Location())
 			}
 
 			cond.Result = res
 			ic, err := toCommand(cond, dOpt.allDispatchStates)
 			if err != nil {
-				return err
+				return false, err
 			}
-			err = dispatch(ctx, ds, ic, dOpt, localCopts...)
+			_, err = dispatch(ctx, ds, ic, dOpt, localCopts...)
 			if err != nil {
-				return err
+				return false, err
 			}
 
 			def, err = ds.state.Marshal(ctx)
 			if err != nil {
-				return err
+				return false, err
 			}
 
 			res, err = opt.solver.Client().Solve(ctx, gwclient.SolveRequest{
@@ -268,7 +273,7 @@ forloop:
 				CacheImports: opt.solver.Client().Config().CacheImports,
 			})
 			if res == nil {
-				return parser.WithLocation(fmt.Errorf("failed to solve EXEC: %w", err), block.Location())
+				return false, parser.WithLocation(fmt.Errorf("failed to solve EXEC: %w", err), block.Location())
 			}
 			err = nil
 		case *converter.CommandProcess:
@@ -277,7 +282,7 @@ forloop:
 				if err == nil {
 					err = fmt.Errorf("unable to start [PROC]")
 				}
-				return parser.WithLocation(err, cond.Location())
+				return false, parser.WithLocation(err, cond.Location())
 			}
 
 			if err != nil {
@@ -293,12 +298,12 @@ forloop:
 		case *converter.CommandBuild:
 			bs, err := dispatchBuild(ctx, *cond, opt, localCopts...)
 			if err != nil {
-				return err
+				return false, err
 			}
 
 			def, err := bs.state.Marshal(ctx)
 			if err != nil {
-				return err
+				return false, err
 			}
 
 			_, err = opt.solver.Client().Solve(ctx, gwclient.SolveRequest{
@@ -317,12 +322,12 @@ forloop:
 				return exec(cmd.ConditionElse[i-1].Commands, localCopts...)
 			}
 		default:
-			return fmt.Errorf("unsupported conditional subcommand: %s", cond.Name())
+			return false, fmt.Errorf("unsupported conditional subcommand: %s", cond.Name())
 		}
 
 		def, err := ds.state.Marshal(ctx)
 		if err != nil {
-			return err
+			return false, err
 		}
 
 		var execop *execOp
@@ -330,7 +335,7 @@ forloop:
 			def := def.Def[i]
 			var pop pb.Op
 			if err := pop.UnmarshalVT(def); err != nil {
-				return err
+				return false, err
 			}
 			if execop = solveOp(&pop); execop != nil {
 				break
@@ -338,12 +343,12 @@ forloop:
 		}
 
 		if execop == nil {
-			return parser.WithLocation(errors.New("no conditional statement found"), block.Location())
+			return false, parser.WithLocation(errors.New("no conditional statement found"), block.Location())
 		}
 
 		ddef, err := d.state.Marshal(ctx)
 		if err != nil {
-			return err
+			return false, err
 		}
 
 		res, err := opt.solver.Client().Solve(ctx, gwclient.SolveRequest{
@@ -352,12 +357,12 @@ forloop:
 			CacheImports: opt.solver.Client().Config().CacheImports,
 		})
 		if err != nil {
-			return parser.WithLocation(fmt.Errorf("failed to marshal state: %w", err), cmd.Location())
+			return false, parser.WithLocation(fmt.Errorf("failed to marshal state: %w", err), cmd.Location())
 		}
 
 		ctr, ctrErr = createContainer(ctx, dOpt.solver.Client(), execop, res.Ref)
 		if ctrErr != nil {
-			return parser.WithLocation(ctrErr, block.Location())
+			return false, parser.WithLocation(ctrErr, block.Location())
 		}
 
 		if execop.Exec != nil && execop.Exec.CdiDevices != nil {
@@ -392,24 +397,27 @@ forloop:
 		}
 
 		var returnErr bool
-		err, returnErr = startProcess(ctx, ctr, timeout, *execop, func() error {
+		err, returnErr, breakCmd = startProcess(ctx, ctr, timeout, *execop, func() (bool, error) {
 			d.state = d.state.
 				AddEnv("STDOUT", stripNewlineSuffix(stdout.String())[0]).
 				AddEnv("STDERR", stripNewlineSuffix(stderr.String())[0])
 			return exec(conditionalCommands, LocalCopts...)
 		}, &nopCloser{stdout}, &nopCloser{stderr})
 		if returnErr {
-			return err
+			return breakCmd, err
 		}
 		errs = errors.Join(errors.New(stderr.String()), parser.WithLocation(err, block.Location()), errs)
+		if breakCmd {
+			break forloop
+		}
 		continue forloop
 	}
 
-	if errs == nil || conds[len(conds) - 1] != nil { // NOTE: if no 'else' condition => skip error
-		return nil
+	if errs == nil || (conds[len(conds) - 1] != nil || breakCmd ) { // NOTE: if no 'else' condition => skip error
+		return breakCmd, nil
 	}
 
-	return fmt.Errorf("all conditions failed: %w", errs)
+	return breakCmd, fmt.Errorf("all conditions failed: %w", errs)
 }
 
 func stripNewlineSuffix(s string) []string {

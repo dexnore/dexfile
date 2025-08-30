@@ -385,14 +385,14 @@ func toDispatchState(ctx context.Context, dt []byte, opt df.ConvertOpt) (_ *disp
 			if err != nil {
 				return nil, err
 			}
-		case *converter.ConditionIF, *converter.ConditionElse, *converter.EndContainer, *converter.EndFunction, *converter.EndIf:
-			return nil, fmt.Errorf("unsupported command %T in meta stage", cmd)
+		case *converter.ConditionIF, *converter.ConditionElse, *converter.EndContainer, *converter.EndFunction, *converter.EndIf, *converter.CommandBuild:
+			return nil, fmt.Errorf("unsupported command %+v in meta stage", cmd)
 		default:
 			ic, err := toCommand(cmd, allDispatchStates)
 			if err != nil {
 				return nil, err
 			}
-			err = dispatch(ctx, metads, ic, dOpt)
+			_, err = dispatch(ctx, metads, ic, dOpt)
 			if err != nil {
 				return nil, parser.WithLocation(err, cmd.Location())
 			}
@@ -479,7 +479,8 @@ func toDispatchState(ctx context.Context, dt []byte, opt df.ConvertOpt) (_ *disp
 		allDispatchStates.states[0].stageName = ""
 	}
 
-	return solveStage(ctx, target, buildContext, dOpt)
+	retDs, _, err := solveStage(ctx, target, buildContext, dOpt)
+	return retDs, err
 }
 
 func toCommand(ic converter.Command, allDispatchStates *dispatchStates) (command, error) {
@@ -647,22 +648,6 @@ func (dss *dispatchStates) findStateByIndex(index int) (*dispatchState, error) {
 	}
 
 	return dss.states[index], nil
-}
-
-func (dss *dispatchStates) findImmutableStateByName(name string) (*dispatchState, bool) {
-	ds, ok := dss.immutableStatesByName[strings.ToLower(name)]
-	if ds != nil {
-		return ds.Clone(), ok
-	}
-	return nil, ok
-}
-
-func (dss *dispatchStates) findImmutableStateByIndex(index int) (*dispatchState, error) {
-	if index < 0 || index >= len(dss.immutableStates) {
-		return nil, errors.Errorf("invalid stage index %d", index)
-	}
-
-	return dss.immutableStates[index].Clone(), nil
 }
 
 func (dss *dispatchStates) lastTarget() *dispatchState {

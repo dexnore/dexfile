@@ -22,7 +22,7 @@ var (
 	ARG_STDERR = dexfile.ScopedVariable("STDERR")
 )
 
-func dispatchCtr(ctx context.Context, d *dispatchState, ctr converter.CommandConatainer, opt dispatchOpt, copts ...llb.ConstraintsOpt) (err error) {
+func dispatchCtr(ctx context.Context, d *dispatchState, ctr converter.CommandConatainer, opt dispatchOpt, copts ...llb.ConstraintsOpt) (breakCmd bool, err error) {
 	st := d.state
 	if ctr.From != "" {
 		index, err := strconv.Atoi(ctr.From)
@@ -36,7 +36,7 @@ func dispatchCtr(ctx context.Context, d *dispatchState, ctr converter.CommandCon
 		} else {
 			stn, err := opt.allDispatchStates.findStateByIndex(index)
 			if err != nil {
-				return err
+				return false, err
 			}
 			st = stn.state
 		}
@@ -54,7 +54,7 @@ func dispatchCtr(ctx context.Context, d *dispatchState, ctr converter.CommandCon
 
 	def, err := st.Marshal(ctx, append(LocalCopts, llb.WithCustomNamef("creating custom container [%s]", ctr.From))...)
 	if err != nil {
-		return err
+		return false, err
 	}
 
 	res, err := opt.solver.Client().Solve(ctx, client.SolveRequest{
@@ -63,12 +63,13 @@ func dispatchCtr(ctx context.Context, d *dispatchState, ctr converter.CommandCon
 		CacheImports: opt.solver.Client().Config().CacheImports,
 	})
 	if err != nil {
-		return parser.WithLocation(err, ctr.Location())
+		return false, parser.WithLocation(err, ctr.Location())
 	}
 
 	ctr.Result = res
 	ctr.State = &st
 
+	forloop:
 	for _, cmd := range ctr.Commands {
 		switch cmd := cmd.(type) {
 		case *converter.CommandProcess:
@@ -76,9 +77,9 @@ func dispatchCtr(ctx context.Context, d *dispatchState, ctr converter.CommandCon
 			dClone, optClone := d.Clone(), opt.Clone()
 			if err, ok := handleProc(ctx, dClone, cmd, optClone); err != nil {
 				if !ok {
-					return parser.WithLocation(fmt.Errorf("failed to start [CTR] process: %s\n%w", strings.Join(cmd.RUN.CmdLine, " "), err), cmd.Location())
+					return false, parser.WithLocation(fmt.Errorf("failed to start [CTR] process: %s\n%w", strings.Join(cmd.RUN.CmdLine, " "), err), cmd.Location())
 				}
-				return err
+				return false, err
 			}
 			stdout, _ := dClone.state.Value(ctx, ARG_STDOUT)
 			stderr, _ := dClone.state.Value(ctx, ARG_STDERR)
@@ -96,23 +97,29 @@ func dispatchCtr(ctx context.Context, d *dispatchState, ctr converter.CommandCon
 			}
 			dc, err := toCommand(cmd, opt.allDispatchStates)
 			if err != nil {
-				return parser.WithLocation(err, cmd.Location())
+				return false, parser.WithLocation(err, cmd.Location())
 			}
-			if err := dispatch(ctx, d, dc, opt, LocalCopts...); err != nil {
-				return parser.WithLocation(err, dc.Location())
+			if breakCmd, err = dispatch(ctx, d, dc, opt, LocalCopts...); err != nil {
+				return breakCmd, parser.WithLocation(err, dc.Location())
+			}
+			if breakCmd {
+				break forloop
 			}
 		default:
 			dc, err := toCommand(cmd, opt.allDispatchStates)
 			if err != nil {
-				return parser.WithLocation(err, cmd.Location())
+				return false, parser.WithLocation(err, cmd.Location())
 			}
-			if err := dispatch(ctx, d, dc, opt, LocalCopts...); err != nil {
-				return parser.WithLocation(err, dc.Location())
+			if breakCmd, err = dispatch(ctx, d, dc, opt, LocalCopts...); err != nil {
+				return breakCmd, parser.WithLocation(err, dc.Location())
+			}
+			if breakCmd {
+				break forloop
 			}
 		}
 	}
 
-	return nil
+	return breakCmd, nil
 }
 
 func handleProc(ctx context.Context, d *dispatchState, cmd *converter.CommandProcess, opt dispatchOpt) (err error, false bool) {
@@ -190,8 +197,8 @@ func handleProc(ctx context.Context, d *dispatchState, cmd *converter.CommandPro
 	defer gwctr.Release(ctx)
 
 	var retErr bool
-	err, retErr = startProcess(ctx, gwctr, cmd.TimeOut, *execop, func() error {
-		return nil
+	err, retErr, _ = startProcess(ctx, gwctr, cmd.TimeOut, *execop, func() (bool, error) {
+		return false, nil
 	}, &nopCloser{stdout}, &nopCloser{stderr})
 	if retErr && err != nil {
 		return parser.WithLocation(fmt.Errorf("%s: %w", stderr.String(), err), cmd.RUN.Location()), true

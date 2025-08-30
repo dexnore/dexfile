@@ -44,7 +44,7 @@ func dispatchExec(ctx context.Context, d *dispatchState, cmd converter.CommandEx
 	if err != nil {
 		return err
 	}
-	if err := dispatch(ctx, ds, ic, dOpt, copts...); err != nil {
+	if _, err := dispatch(ctx, ds, ic, dOpt, copts...); err != nil {
 		return err
 	}
 
@@ -86,7 +86,7 @@ func dispatchExec(ctx context.Context, d *dispatchState, cmd converter.CommandEx
 		retErr bool
 	)
 
-	err, retErr = startProcess(ctx, ctr, cmd.TimeOut, *execop, func() error {
+	err, retErr, _ = startProcess(ctx, ctr, cmd.TimeOut, *execop, func() (bool, error) {
 		p := platforms.DefaultSpec()
 		if ds.platform != nil {
 			p = *ds.platform
@@ -94,7 +94,7 @@ func dispatchExec(ctx context.Context, d *dispatchState, cmd converter.CommandEx
 
 		s, err := parseDefinationToState(ctx, stdout, dOpt.solver.Client(), p)
 		if err != nil {
-			return err
+			return false, err
 		}
 		dc.sources = execSources
 
@@ -120,7 +120,7 @@ func dispatchExec(ctx context.Context, d *dispatchState, cmd converter.CommandEx
 					d.paths[p] = struct{}{}
 				}
 			} else {
-				return fmt.Errorf("unable to parse %s: %+v", keyPaths, vPaths)
+				return false, fmt.Errorf("unable to parse %s: %+v", keyPaths, vPaths)
 			}
 		}
 
@@ -136,7 +136,7 @@ func dispatchExec(ctx context.Context, d *dispatchState, cmd converter.CommandEx
 					d.ctxPaths[p] = struct{}{}
 				}
 			} else {
-				return fmt.Errorf("unable to parse %s: %+v", keyContextPaths, vCtxPaths)
+				return false, fmt.Errorf("unable to parse %s: %+v", keyContextPaths, vCtxPaths)
 			}
 		}
 
@@ -144,21 +144,21 @@ func dispatchExec(ctx context.Context, d *dispatchState, cmd converter.CommandEx
 			var img dockerspec.DockerOCIImage
 			if i, ok := vImgConfig.(string); ok {
 				if err = json.Unmarshal([]byte(i), &img); err != nil {
-					return err
+					return false, err
 				}
 			} else if i, ok := vImgConfig.(fmt.Stringer); ok {
 				if err = json.Unmarshal([]byte(i.String()), &img); err != nil {
-					return err
+					return false, err
 				}
 			} else {
-				return fmt.Errorf("unable to parse %s: %+v", keyImageConfig, vImgConfig)
+				return false, fmt.Errorf("unable to parse %s: %+v", keyImageConfig, vImgConfig)
 			}
 
 			d.image = internal.MergeDockerOCIImages(d.image, img)
 		}
 
 		d.state = llb.Merge([]llb.State{d.state, s}, append(copts, llb.WithCustomNamef("EXEC %s", strings.Join(cmd.RUN.CmdLine, " ")))...)
-		return nil
+		return false, nil
 	}, &nopCloser{stdout}, &nopCloser{stderr})
 	if retErr {
 		return parser.WithLocation(fmt.Errorf("%s\n%w", stderr.String(), err), cmd.Location())

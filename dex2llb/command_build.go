@@ -10,7 +10,11 @@ import (
 )
 
 func dispatchBuild(ctx context.Context, cmd converter.CommandBuild, opt dispatchOpt,  copts ...llb.ConstraintsOpt) (buildState *dispatchState, err error) {
-	buildState, ok := opt.allDispatchStates.findImmutableStateByName(cmd.Stage)
+	dOpt := opt.Clone()
+	dss := dOpt.allDispatchStates
+	dss.states = cloneDispatchStateSlice(dss.immutableStates)
+	dss.statesByName = cloneDispatchStatesByName(dss.immutableStatesByName)
+	buildState, ok := dss.findStateByName(cmd.Stage)
 	if !ok {
 		return nil, parser.WithLocation(fmt.Errorf("no stage found with name %q", cmd.Stage), cmd.Location())
 	}
@@ -30,7 +34,7 @@ func dispatchBuild(ctx context.Context, cmd converter.CommandBuild, opt dispatch
 	// 	buildState.commands = append(buildState.commands, ic)
 	// }
 	buildState.buildArgs = append(buildState.buildArgs, cmd.Args...)
-	buildState, err = solveStage(ctx, buildState, opt.mutableBuildContextOutput, opt)
+	buildState, _, err = solveStage(ctx, buildState, opt.mutableBuildContextOutput, dOpt)
 	return nil, fmt.Errorf(
 		`base: %+v
 
