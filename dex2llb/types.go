@@ -275,10 +275,14 @@ func dispatchStateCloneStates(ds []*dispatchState, dss map[string]*dispatchState
 			dss_clone[k] = nil
 			continue
 		}
-		dss_clone[k] = v.Clone()
+		vClone := v.Clone()
+		dss_clone[k] = vClone
 		for i, p := range ds {
-			if p == v {
-				ds_clone[i] = dss_clone[k]
+			if p.stage.StageName != "" && p.stage.StageName == v.stage.StageName {
+				ds_clone[i] = vClone
+				break
+			} else if p.imports.StageName != "" && p.imports.StageName == v.imports.StageName {
+				ds_clone[i] = vClone
 				break
 			}
 		}

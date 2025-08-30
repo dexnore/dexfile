@@ -18,14 +18,6 @@ func dispatchBuild(ctx context.Context, cmd converter.CommandBuild, opt dispatch
 		return nil, parser.WithLocation(fmt.Errorf("no stage found with name %q", cmd.Stage), cmd.Location())
 	}
 
-	for i, p := range dss.states {
-		if p == buildState {
-			return nil, fmt.Errorf("state found at %d, \n%+v", i, p)
-		}
-	}
-
-	return nil, fmt.Errorf("state not found\n %+v\n\n %+v", dss.states, dss.statesByName)
-
 	buildState.opt = dOpt
 	buildState.buildArgs = append(buildState.buildArgs, cmd.Args...)
 	buildState, _, err = solveStage(ctx, buildState, opt.mutableBuildContextOutput, dOpt)
