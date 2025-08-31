@@ -37,7 +37,7 @@ func handleFunctionCall(ctx context.Context, cmd converter.Function, d *dispatch
 		return false, fmt.Errorf("unknown function: %q", cmd.FuncName)
 	}
 
-	var funcArgs = append(function.Args, cmd.Args...)
+	var funcArgs = append(cmd.Args, function.Args...)
 	ds, dOpt := d.Clone(), opt.Clone()
 	for _, kvp := range funcArgs {
 		ds.state = ds.state.AddEnv(kvp.Key, kvp.ValueString())

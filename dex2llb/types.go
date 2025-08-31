@@ -1,7 +1,6 @@
 package dex2llb
 
 import (
-	"context"
 	"maps"
 	"slices"
 	"time"
@@ -119,10 +118,10 @@ func (ds dispatchState) Clone() *dispatchState {
 	}
 
 	st := ds.state
-	dir, err := st.GetDir(context.TODO())
-	if err != nil || dir == "" {
-		st = st.Dir("/")
-	}
+	// dir, err := st.GetDir(context.TODO())
+	// if err != nil || dir == "" {
+	// 	st = st.Dir("/")
+	// }
 
 	return &dispatchState{
 		dispatched:     ds.dispatched,
@@ -264,6 +263,27 @@ func (dss dispatchStates) Clone() dispatchStates {
 		immutableStates: immutableStates,
 		immutableStatesByName: immutableStatesByName,
 	}
+}
+
+func (dss *dispatchStates) Clean() {
+	dss.states = dedupDispatchStates(dss.states, dss.statesByName)
+	dss.immutableStates = dedupDispatchStates(dss.immutableStates, dss.immutableStatesByName)
+}
+
+func dedupDispatchStates(ds []*dispatchState, dss map[string]*dispatchState) []*dispatchState {
+	var states = make([]*dispatchState, 0, len(dss))
+	for _, p := range ds {
+		if _, ok := dss[p.stage.StageName]; ok {
+			states = append(states, p)
+			continue
+		}
+
+		if _, ok := dss[p.imports.StageName]; ok {
+			states = append(states, p)
+			continue
+		}
+	}
+	return states
 }
 
 func dispatchStateCloneStates(ds []*dispatchState, dss map[string]*dispatchState) ([]*dispatchState, map[string]*dispatchState) {

@@ -47,10 +47,10 @@ func dispatchCtr(ctx context.Context, d *dispatchState, ctr converter.CommandCon
 		llb.ProgressGroup(ctrID, ctr.String(), false),
 	}
 	LocalCopts := append(copts, localCopts...)
-	cwd, err := st.GetDir(ctx)
-	if err != nil || cwd == "" {
-		st = st.Dir("/")
-	}
+	// cwd, err := st.GetDir(ctx)
+	// if err != nil || cwd == "" {
+	// 	st = st.Dir("/")
+	// }
 
 	def, err := st.Marshal(ctx, append(LocalCopts, llb.WithCustomNamef("creating custom container [%s]", ctr.From))...)
 	if err != nil {
