@@ -2,6 +2,7 @@ package dex2llb
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path"
 	"path/filepath"
@@ -128,6 +129,11 @@ func dispatchRunMounts(d *dispatchState, c *instructions.RunCommand, sources []*
 			target = filepath.Join("/", dir, mount.Target)
 		}
 		if target == "/" {
+			def, err := d.state.Marshal(context.TODO())
+			if err != nil {
+				return nil, err
+			}
+			return nil, fmt.Errorf("%+v", def)
 			return nil, errors.Errorf("invalid mount target %q", target)
 		}
 		if src := path.Join("/", mount.Source); src != "/" {

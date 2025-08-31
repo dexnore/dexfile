@@ -52,13 +52,18 @@ func dispatch(ctx context.Context, d *dispatchState, cmd command, opt dispatchOp
 
 	switch c := cmd.Command.(type) {
 	case *converter.MaintainerCommand:
-		err = dispatchMaintainer(d, c, copts...)
+		return false, dispatchMaintainer(d, c, copts...)
 	case *converter.EnvCommand:
-		err = dispatchEnv(d, c, opt.lint, copts...)
+		return false, dispatchEnv(d, c, opt.lint, copts...)
 	case *converter.RunCommand:
-		err = dispatchRun(d, c, opt.proxyEnv, cmd.sources, opt, copts...)
+		return false, dispatchRun(d, c, opt.proxyEnv, cmd.sources, opt, copts...)
 	case *converter.WorkdirCommand:
-		err = dispatchWorkdir(d, c, true, &opt, copts...)
+		// dir, err := d.state.GetDir(ctx)
+		// if err != nil {
+		// 	return false, err
+		// }
+		// return false, fmt.Errorf("WorkingDir EXEC %q", dir)
+		return false, dispatchWorkdir(d, c, true, &opt, copts...)
 	case *converter.AddCommand:
 		err = dispatchCopy(d, copyConfig{
 			params:          c.SourcesAndDest,
@@ -83,28 +88,29 @@ func dispatch(ctx context.Context, d *dispatchState, cmd command, opt dispatchOp
 				}
 			}
 		}
+		return false, err
 	case *converter.LabelCommand:
-		err = dispatchLabel(d, c, opt.lint, copts...)
+		return false, dispatchLabel(d, c, opt.lint, copts...)
 	case *converter.OnbuildCommand:
-		err = dispatchOnbuild(d, c, copts...)
+		return false, dispatchOnbuild(d, c, copts...)
 	case *converter.CmdCommand:
-		err = dispatchCmd(d, c, opt.lint, copts...)
+		return false, dispatchCmd(d, c, opt.lint, copts...)
 	case *converter.EntrypointCommand:
-		err = dispatchEntrypoint(d, c, opt.lint, copts...)
+		return false, dispatchEntrypoint(d, c, opt.lint, copts...)
 	case *converter.HealthCheckCommand:
-		err = dispatchHealthcheck(d, c, opt.lint, copts...)
+		return false, dispatchHealthcheck(d, c, opt.lint, copts...)
 	case *converter.ExposeCommand:
-		err = dispatchExpose(d, c, opt.shlex, copts...)
+		return false, dispatchExpose(d, c, opt.shlex, copts...)
 	case *converter.UserCommand:
-		err = dispatchUser(d, c, true, copts...)
+		return false, dispatchUser(d, c, true, copts...)
 	case *converter.VolumeCommand:
-		err = dispatchVolume(d, c, copts...)
+		return false, dispatchVolume(d, c, copts...)
 	case *converter.StopSignalCommand:
-		err = dispatchStopSignal(d, c, copts...)
+		return false, dispatchStopSignal(d, c, copts...)
 	case *converter.ShellCommand:
-		err = dispatchShell(d, c, copts...)
+		return false, dispatchShell(d, c, copts...)
 	case *converter.ArgCommand:
-		err = dispatchArg(d, c, &opt, copts...)
+		return false, dispatchArg(d, c, &opt, copts...)
 	case *converter.CopyCommand:
 		l := opt.buildContext
 		var ignoreMatcher *patternmatcher.PatternMatcher
@@ -164,7 +170,7 @@ func dispatch(ctx context.Context, d *dispatchState, cmd command, opt dispatchOp
 				return false, parser.WithLocation(err, cmd.Location())
 			}
 		}
-		err = dispatchExec(ctx, d, *c, res, opt, copts...)
+		return false, dispatchExec(ctx, d, *c, res, opt, copts...)
 	case *converter.ConditionIfElse:
 		return handleIfElse(ctx, d, *c, func(nc []converter.Command, copts ...llb.ConstraintsOpt) (bool, error) {
 			for _, cmd := range nc {
@@ -208,6 +214,4 @@ func dispatch(ctx context.Context, d *dispatchState, cmd command, opt dispatchOp
 	default:
 		return false, fmt.Errorf("unknown dispatcher command: %w", &converter.UnknownInstructionError{Instruction: c.Name(), Line: c.Location()[0].Start.Line})
 	}
-
-	return false, err
 }

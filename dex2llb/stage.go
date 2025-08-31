@@ -23,6 +23,13 @@ func solveStage(ctx context.Context, target *dispatchState, buildContext *mutabl
 		return nil, false, err
 	}
 
+	if len(allReachable) > 1 {
+		var prntStr = "[ \n"
+		for v := range allReachable {
+			prntStr += fmt.Sprintf("%+v\n\n\n", v)
+		}
+		return nil, false, fmt.Errorf("allReachable: %+v", prntStr + "\n ]")
+	}
 	ctxPaths := map[string]struct{}{}
 	for _, d := range opt.allDispatchStates.states {
 		if !opt.convertOpt.AllStages {
@@ -120,7 +127,7 @@ func solveStage(ctx context.Context, target *dispatchState, buildContext *mutabl
 	// configured to return an error on warnings,
 	// so we appropriately return that error here.
 	if err := opt.lint.Error(); err != nil {
-		return nil, false, err
+		return nil, breakCmd, err
 	}
 
 	opts := filterPaths(ctxPaths)
@@ -128,7 +135,7 @@ func solveStage(ctx context.Context, target *dispatchState, buildContext *mutabl
 	if opt.convertOpt.BC != nil {
 		bctx, err = opt.convertOpt.BC.MainContext(ctx, opts...)
 		if err != nil {
-			return nil, false, err
+			return nil, breakCmd, err
 		}
 	} else if bctx == nil {
 		bctx = maincontext.DefaultMainContext(opts...)
@@ -159,5 +166,5 @@ func solveStage(ctx context.Context, target *dispatchState, buildContext *mutabl
 	}
 	target.image.Platform = platforms.Normalize(target.image.Platform)
 
-	return target, false, nil
+	return target, breakCmd, nil
 }
