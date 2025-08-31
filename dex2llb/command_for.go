@@ -157,10 +157,10 @@ func handleForLoop(ctx context.Context, d *dispatchState, cmd converter.CommandF
 				return breakCmd, err
 			}
 			if breakCmd {
-				break
+				return true, nil
 			}
 		}
 	}
 
-	return breakCmd, err
+	return false, err
 }

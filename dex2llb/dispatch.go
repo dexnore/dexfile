@@ -177,10 +177,10 @@ func dispatch(ctx context.Context, d *dispatchState, cmd command, opt dispatchOp
 					return breakCmd, parser.WithLocation(err, cmd.Location())
 				}
 				if breakCmd {
-					break
+					return true, nil
 				}
 			}
-			return breakCmd, nil
+			return false, nil
 		}, opt, copts...)
 	case *converter.CommandFor:
 		return handleForLoop(ctx, d, *c, func(nc []converter.Command, copts ...llb.ConstraintsOpt) (bool, error) {
@@ -193,10 +193,10 @@ func dispatch(ctx context.Context, d *dispatchState, cmd command, opt dispatchOp
 					return breakCmd, parser.WithLocation(err, cmd.Location())
 				}
 				if breakCmd {
-					break
+					return true, nil
 				}
 			}
-			return breakCmd, nil
+			return false, nil
 		}, opt, copts...)
 	case *converter.CommandConatainer:
 		return dispatchCtr(ctx, d, *c, opt, copts...)

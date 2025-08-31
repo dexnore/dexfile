@@ -51,7 +51,7 @@ func handleFunctionCall(ctx context.Context, cmd converter.Function, d *dispatch
 			return breakCmd, err
 		}
 		if breakCmd {
-			break
+			return true, nil
 		}
 	}
 
@@ -67,7 +67,7 @@ func handleFunctionCall(ctx context.Context, cmd converter.Function, d *dispatch
 	} else {
 		d.state = d.state.File(llb.Copy(ds.state, "/", "/"), LocalCopts...)
 	}
-	return breakCmd, nil
+	return false, nil
 }
 
 func handleFunctionDefination(cmd converter.Function, opt dispatchOpt) error {

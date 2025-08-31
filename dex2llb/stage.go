@@ -77,7 +77,7 @@ func solveStage(ctx context.Context, target *dispatchState, buildContext *mutabl
 				return d, breakCmd, err
 			}
 			if breakCmd {
-				break
+				return d, true, nil
 			}
 		}
 
@@ -120,7 +120,7 @@ func solveStage(ctx context.Context, target *dispatchState, buildContext *mutabl
 	// configured to return an error on warnings,
 	// so we appropriately return that error here.
 	if err := opt.lint.Error(); err != nil {
-		return nil, breakCmd, err
+		return nil, false, err
 	}
 
 	opts := filterPaths(ctxPaths)
@@ -128,7 +128,7 @@ func solveStage(ctx context.Context, target *dispatchState, buildContext *mutabl
 	if opt.convertOpt.BC != nil {
 		bctx, err = opt.convertOpt.BC.MainContext(ctx, opts...)
 		if err != nil {
-			return nil, breakCmd, err
+			return nil, false, err
 		}
 	} else if bctx == nil {
 		bctx = maincontext.DefaultMainContext(opts...)
@@ -159,5 +159,5 @@ func solveStage(ctx context.Context, target *dispatchState, buildContext *mutabl
 	}
 	target.image.Platform = platforms.Normalize(target.image.Platform)
 
-	return target, breakCmd, nil
+	return target, false, nil
 }

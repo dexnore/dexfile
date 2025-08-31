@@ -408,16 +408,16 @@ forloop:
 		}
 		errs = errors.Join(errors.New(stderr.String()), parser.WithLocation(err, block.Location()), errs)
 		if breakCmd {
-			break forloop
+			return true, nil
 		}
 		continue forloop
 	}
 
-	if errs == nil || (conds[len(conds) - 1] != nil || breakCmd ) { // NOTE: if no 'else' condition => skip error
-		return breakCmd, nil
+	if errs == nil || conds[len(conds) - 1] != nil { // NOTE: if no 'else' condition => skip error
+		return false, nil
 	}
 
-	return breakCmd, fmt.Errorf("all conditions failed: %w", errs)
+	return false, fmt.Errorf("all conditions failed: %w", errs)
 }
 
 func stripNewlineSuffix(s string) []string {
