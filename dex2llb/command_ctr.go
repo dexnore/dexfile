@@ -69,7 +69,6 @@ func dispatchCtr(ctx context.Context, d *dispatchState, ctr converter.CommandCon
 	ctr.Result = res
 	ctr.State = &st
 
-	forloop:
 	for _, cmd := range ctr.Commands {
 		switch cmd := cmd.(type) {
 		case *converter.CommandProcess:
@@ -103,7 +102,7 @@ func dispatchCtr(ctx context.Context, d *dispatchState, ctr converter.CommandCon
 				return breakCmd, parser.WithLocation(err, dc.Location())
 			}
 			if breakCmd {
-				break forloop
+				return true, nil
 			}
 		default:
 			dc, err := toCommand(cmd, opt.allDispatchStates)
@@ -114,12 +113,12 @@ func dispatchCtr(ctx context.Context, d *dispatchState, ctr converter.CommandCon
 				return breakCmd, parser.WithLocation(err, dc.Location())
 			}
 			if breakCmd {
-				break forloop
+				return true, nil
 			}
 		}
 	}
 
-	return breakCmd, nil
+	return false, nil
 }
 
 func handleProc(ctx context.Context, d *dispatchState, cmd *converter.CommandProcess, opt dispatchOpt) (err error, false bool) {
