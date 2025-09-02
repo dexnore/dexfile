@@ -32,4 +32,3 @@ func dispatchBuild(ctx context.Context, cmd converter.CommandBuild, opt dispatch
 	buildState, _, err = solveStage(ctx, buildState, opt.mutableBuildContextOutput, dOpt)
 	return buildState, err
 }
-

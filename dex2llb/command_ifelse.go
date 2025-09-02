@@ -300,7 +300,11 @@ forloop:
 				return exec(cmd.ConditionElse[i-1].Commands, localCopts...)
 			}
 		case *converter.CommandBuild:
-			bs, err := dispatchBuild(ctx, *cond, opt, localCopts...)
+			dOpt, err := opt.Clone()
+			if err != nil {
+				return false, err
+			}
+			bs, err := dispatchBuild(ctx, *cond, dOpt, localCopts...)
 			if err != nil {
 				return false, err
 			}

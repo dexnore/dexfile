@@ -2,9 +2,7 @@ package dex2llb
 
 import (
 	"context"
-	"fmt"
 	"maps"
-	"runtime/debug"
 	"slices"
 
 	"github.com/containerd/platforms"
@@ -13,17 +11,10 @@ import (
 	"github.com/dexnore/dexfile/instructions/parser"
 	"github.com/moby/buildkit/client/llb"
 	"github.com/moby/buildkit/frontend/dockerfile/shell"
-	"github.com/moby/buildkit/solver/pb"
 	"github.com/moby/buildkit/util/system"
 )
 
 func solveStage(ctx context.Context, target *dispatchState, buildContext *mutableDexfileOutput, opt dispatchOpt) (_ *dispatchState, breakCmd bool, err error) {
-	defer func() {
-		if r := recover(); r != nil {
-			err = fmt.Errorf("panic: %v\n%w\n\n\n\n\n\n%s", r, err, debug.Stack())
-		}
-		err = fmt.Errorf("defer:\n%w", err)
-	}()
 	var platformOpt = buildPlatformOpt(&opt.convertOpt)
 
 	allReachable, err := resolveReachableStage(ctx, opt.allDispatchStates, target, opt.stageResolver)
@@ -83,10 +74,7 @@ func solveStage(ctx context.Context, target *dispatchState, buildContext *mutabl
 				err = parser.WithLocation(err, cmd.Location())
 				return d, breakCmd, err
 			}
-			if breakCmd {
-				if len(allReachable) > 1 {
-					return d, true, fmt.Errorf("breakcmd: \n%+v", d)
-				}
+			if breakCmd {				
 				return d, true, nil
 			}
 		}
@@ -168,88 +156,5 @@ func solveStage(ctx context.Context, target *dispatchState, buildContext *mutabl
 		}
 	}
 	target.image.Platform = platforms.Normalize(target.image.Platform)
-	if len(allReachable) > 1 {
-		def, err := target.state.Marshal(ctx)
-		if err != nil {
-			return target, false, err
-		}
-
-		if def == nil {
-			rel, ok := opt.allDispatchStates.findStateByName("release")
-			if !ok {
-				return nil, false, fmt.Errorf("no release stage found")
-			}
-			if rel == nil || true {
-				return nil, false, fmt.Errorf("rel is nil")
-			}
-			def, err := rel.state.Marshal(ctx)
-			if err != nil {
-				return target, false, err
-			}
-			str := "\n"
-			if def != nil {
-				for _, d := range def.Def {
-					str += fmt.Sprintf("%s\n", d)
-				}
-			}
-			strErr := fmt.Errorf("%s", str)
-			return nil, false, fmt.Errorf("no definition found\n\n%w\n\n%w", strErr, fmt.Errorf("target[%p]\trelease:[%p]\n target:[FROM %s AS %s]\trelease:[FROM %s AS %s]", target, rel, target.stage.BaseName, target.stage.StageName, rel.stage.BaseName, rel.stage.StageName))
-		}
-
-		str := ""
-		// for _, d := range def.Def {
-		// 	if d == nil {
-		// 		continue
-		// 	}
-		// 	str = fmt.Sprintf("%s\ndef:\t%s\n", str, d)
-		// }
-		// return nil, false, fmt.Errorf("%+s", bytes.Join(def.Def, []byte("\n")))
-		// str := fmt.Sprintf("\n allDispatchStates: %d:%v\n", len(opt.allDispatchStates.states), breakCmd)
-		// for k, v := range opt.allDispatchStates.states {
-		// 	str += fmt.Sprintf("%d:\t%+v\n\n", k, v)
-		// }
-		for i := len(def.Def) - 1; i >= 0; i-- {
-			def := def.Def[i]
-			var pop pb.Op
-			if err := pop.UnmarshalVT(def); err != nil {
-				return nil, false, err
-			}
-			switch op := pop.Op.(type) {
-			case *pb.Op_Exec:
-				if op == nil || op.Exec == nil {
-					continue
-				}
-				str += op.Exec.String() + "\n"
-			case *pb.Op_Build:
-				if op == nil || op.Build == nil {
-					continue
-				}
-				str += op.Build.String() + "\n"
-			case *pb.Op_Diff:
-				if op == nil || op.Diff == nil {
-					continue
-				}
-				str += op.Diff.String() + "\n"
-			case *pb.Op_File:
-				if op == nil || op.File == nil {
-					continue
-				}
-				str += op.File.String() + "\n"
-			case *pb.Op_Merge:
-				if op == nil || op.Merge == nil {
-					continue
-				}
-				str += op.Merge.String() + "\n"
-			case *pb.Op_Source:
-				if op == nil || op.Source == nil {
-					continue
-				}
-				str += op.Source.String() + "\n"
-			default:
-				str += "unknownOp\n"
-			}
-		}
-		return nil, false, fmt.Errorf("%+s", str)
-	}
 	return target, false, nil
 }
