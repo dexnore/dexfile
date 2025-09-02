@@ -38,7 +38,11 @@ func handleFunctionCall(ctx context.Context, cmd converter.Function, d *dispatch
 	}
 
 	var funcArgs = append(cmd.Args, function.Args...)
-	ds, dOpt := d.Clone(), opt.Clone()
+	ds := d.Clone()
+	dOpt, err := opt.Clone()
+	if err != nil {
+		return false, err
+	}
 	for _, kvp := range funcArgs {
 		ds.state = ds.state.AddEnv(kvp.Key, kvp.ValueString())
 	}

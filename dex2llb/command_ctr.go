@@ -73,7 +73,11 @@ func dispatchCtr(ctx context.Context, d *dispatchState, ctr converter.CommandCon
 		switch cmd := cmd.(type) {
 		case *converter.CommandProcess:
 			cmd.InContainer = *ctr.Clone()
-			dClone, optClone := d.Clone(), opt.Clone()
+			dClone := d.Clone()
+			optClone, err := opt.Clone()
+			if err != nil {
+				return false, err
+			}
 			if err, ok := handleProc(ctx, dClone, cmd, optClone); err != nil {
 				if !ok {
 					return false, parser.WithLocation(fmt.Errorf("failed to start [CTR] process: %s\n%w", strings.Join(cmd.RUN.CmdLine, " "), err), cmd.Location())

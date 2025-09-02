@@ -53,7 +53,11 @@ func handleForLoop(ctx context.Context, d *dispatchState, cmd converter.CommandF
 		llb.ProgressGroup(forID, fmt.Sprintf("FOR %+v", cmd.EXEC), false),
 	}
 	LocalCopts := append(copts, localCopts...)
-	ds, dOpt, isProc := d.Clone(), opt.Clone(), false
+	ds, isProc := d.Clone(), false
+	dOpt, err := opt.Clone()
+	if err != nil {
+		return false, err
+	}
 	switch exec := cmd.EXEC.(type) {
 	case *converter.CommandExec:
 		exec.Result = res

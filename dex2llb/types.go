@@ -1,6 +1,7 @@
 package dex2llb
 
 import (
+	"fmt"
 	"maps"
 	"slices"
 	"time"
@@ -118,11 +119,6 @@ func (ds dispatchState) Clone() *dispatchState {
 	}
 
 	st := ds.state
-	// dir, err := st.GetDir(context.TODO())
-	// if err != nil || dir == "" {
-	// 	st = st.Dir("/")
-	// }
-
 	return &dispatchState{
 		dispatched:     ds.dispatched,
 		base:           base,
@@ -187,7 +183,7 @@ type dispatchOpt struct {
 	mutableBuildContextOutput *mutableDexfileOutput
 }
 
-func (o dispatchOpt) Clone() dispatchOpt {
+func (o dispatchOpt) Clone() (dispatchOpt, error){
 	var shlex *shell.Lex
 	if o.shlex != nil {
 		s := *o.shlex
@@ -215,7 +211,10 @@ func (o dispatchOpt) Clone() dispatchOpt {
 
 	var dss *dispatchStates
 	if o.allDispatchStates != nil {
-		ds := o.allDispatchStates.Clone()
+		ds, err := o.allDispatchStates.Clone()
+		if err != nil {
+			return dispatchOpt{}, err
+		}
 		dss = &ds
 	}
 
@@ -251,18 +250,21 @@ func (o dispatchOpt) Clone() dispatchOpt {
 		stageResolver: o.stageResolver,
 		convertOpt: o.convertOpt,
 		mutableBuildContextOutput: o.mutableBuildContextOutput,
-	}
+	}, nil
 }
 
-func (dss dispatchStates) Clone() dispatchStates {
-	states, statesByName := dispatchStateCloneStates(dss.states, dss.statesByName) 
-	immutableStates, immutableStatesByName := dispatchStateCloneStates(dss.immutableStates, dss.immutableStatesByName)
+func (dss dispatchStates) Clone() (dispatchStates, error) {
+	states, statesByName, err := dispatchStateCloneStates(dss.states, dss.statesByName)
+	if err != nil {
+		return dispatchStates{}, err
+	}
+	immutableStates, immutableStatesByName, err := dispatchStateCloneStates(dss.immutableStates, dss.immutableStatesByName)
 	return dispatchStates{
 		states:       states,
 		statesByName: statesByName,
 		immutableStates: immutableStates,
 		immutableStatesByName: immutableStatesByName,
-	}
+	}, err
 }
 
 func (dss *dispatchStates) Clean() {
@@ -286,7 +288,7 @@ func dedupDispatchStates(ds []*dispatchState, dss map[string]*dispatchState) []*
 	return states
 }
 
-func dispatchStateCloneStates(ds []*dispatchState, dss map[string]*dispatchState) ([]*dispatchState, map[string]*dispatchState) {
+func dispatchStateCloneStates(ds []*dispatchState, dss map[string]*dispatchState) (_ []*dispatchState, _ map[string]*dispatchState, err error) {
 	var ds_clone = make([]*dispatchState, len(ds))
 	var dss_clone = make(map[string]*dispatchState, len(dss))
 
@@ -313,5 +315,15 @@ func dispatchStateCloneStates(ds []*dispatchState, dss map[string]*dispatchState
 		}
 	}
 
-	return ds_clone, dss_clone
+	for k, v := range dss_clone {
+		if v.base != nil {
+			if vBase, ok := dss_clone[v.BaseName()]; ok {
+				dss_clone[k].base = vBase
+			} else {
+				return nil, nil, fmt.Errorf("base image %q not found: %+v", v.BaseName(), v)
+			}
+		}
+	}
+
+	return ds_clone, dss_clone, nil
 }

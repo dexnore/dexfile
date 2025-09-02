@@ -32,7 +32,11 @@ func dispatchExec(ctx context.Context, d *dispatchState, cmd converter.CommandEx
 			err = parser.WithLocation(err, cmd.Location())
 		}
 	}()
-	ds, dOpt := d.Clone(), opt.Clone()
+	ds := d.Clone()
+	dOpt, err := opt.Clone()
+	if err != nil {
+		return err
+	}
 
 	dc, err := toCommand(cmd, dOpt.allDispatchStates)
 	if err != nil {

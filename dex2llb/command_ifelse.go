@@ -227,7 +227,11 @@ forloop:
 			return exec(cmd.ConditionElse[i-1].Commands, localCopts...)
 		}
 
-		ds, dOpt := d.Clone(), opt.Clone()
+		ds := d.Clone()
+		dOpt, err := opt.Clone()
+		if err != nil {
+			return false, err
+		}
 		switch cond := block.(type) {
 		case *converter.RunCommand:
 			dc, err := toCommand(cond, dOpt.allDispatchStates)
