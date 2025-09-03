@@ -52,8 +52,7 @@ func (c *Client) GetLocalSession(id string) (session string, found bool) {
 func (c *Client) InitConfig() (err error) {
 	for _, parseAttr := range DefaultClientParseAttrs {
 		configOpts := parseAttr(c.BuildOpts())
-		cfg := c.ClientConfig
-		if err := configOpts(&cfg); err != nil {
+		if err := configOpts(&c.ClientConfig); err != nil {
 			return err
 		}
 	}
