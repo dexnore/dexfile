@@ -1,7 +1,7 @@
 package converter
 
 import (
-	"regexp"
+	"fmt"
 	"slices"
 	"strings"
 	"time"
@@ -33,12 +33,7 @@ type ConditionIF struct {
 	End       bool
 }
 
-// type Condition struct {
-// 	Command
-// 	STDIN, STDOUT, STDERR *bytes.Buffer
-// }
-
-func (c *ConditionIF) AddIF(cmd Command) error {
+func (c *ConditionIF) AddCommand(cmd Command) error {
 	if c.End {
 		return errors.New("cannot add commands to Conditional IF block: the block has already been closed")
 	}
@@ -46,8 +41,12 @@ func (c *ConditionIF) AddIF(cmd Command) error {
 	return nil
 }
 
-func (c *ConditionIF) EndIF() {
+func (c *ConditionIF) EndBlock() error {
+	if c.End {
+		return fmt.Errorf("cannot end Conditional IF block: the block has already been closed")
+	}
 	c.End = true
+	return nil
 }
 
 type ConditionIfElse struct {
@@ -70,18 +69,12 @@ func (c *ConditionIfElse) Location() (loc []parser.Range) {
 }
 
 func parseIf(req parseRequest) (ifcmd *ConditionIF, err error) {
-	ifcmd = &ConditionIF{}
-	ifcmd.withNameAndCode = newWithNameAndCode(req)
+	ifcmd = &ConditionIF{ withNameAndCode: newWithNameAndCode(req) }
 	if len(req.args) == 0 {
 		return nil, errors.Errorf("invalid [IF] statement: missing condition. Please specify a subcommand, e.g., 'IF RUN ...'")
 	}
 
-	// conditionalStmt := strings.ToUpper(strings.TrimSpace(req.args[0]))
-
-	original := regexp.MustCompile(`(?i)^\s*IF\s*`).ReplaceAllString(req.original, "")
-	for _, heredoc := range req.heredocs {
-		original += "\n" + heredoc.Content + heredoc.Name
-	}
+	original := strings.TrimSpace(strings.Join(req.args[0:], " "))
 
 	res, err := parser.Parse(strings.NewReader(original))
 	if err != nil || res == nil {
@@ -93,7 +86,7 @@ func parseIf(req parseRequest) (ifcmd *ConditionIF, err error) {
 	}
 
 	if len(res.AST.Children) != 1 {
-		return nil, errors.New("if command should have single condition")
+		return nil, errors.New("'if' command should have single condition")
 	}
 
 	cond, err := ParseCommand(res.AST.Children[0])
@@ -102,7 +95,7 @@ func parseIf(req parseRequest) (ifcmd *ConditionIF, err error) {
 	}
 
 	switch cond.(type) {
-	case *RunCommand, *CommandExec, *CommandProcess:
+	case *RunCommand, *CommandExec, *CommandProcess, *CommandBuild:
 		flTimeout := req.flags.AddString("timeout", "")
 		if err := req.flags.Parse(); err != nil {
 			return nil, err

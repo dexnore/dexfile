@@ -241,10 +241,17 @@ func (bf *BFlags) MustParse() error {
 		arg := flagName[2:]
 
 		flag := bf.flags[arg]
+		if flag == nil {
+			flag = &Flag{
+				bf:       bf,
+				name:     arg,
+				flagType: stringType,
+			}
+			bf.flags[arg] = flag
+		}
 		if _, ok := bf.used[arg]; ok && flag.flagType != stringsType {
 			return errors.Errorf("duplicate flag specified: %s", flagName)
 		}
-
 		bf.used[arg] = flag
 		if !hasValue {
 			flag.Value = "true"

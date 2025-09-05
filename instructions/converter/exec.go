@@ -1,21 +1,27 @@
 package converter
 
-import "time"
+import (
+	"time"
+
+	"github.com/moby/buildkit/frontend/gateway/client"
+)
 
 type CommandExec struct {
 	withNameAndCode
 	TimeOut *time.Duration
 	RUN     *RunCommand
+	Result *client.Result
 }
 
 func parseExec(req parseRequest) (exec *CommandExec, err error) {
 	exec = &CommandExec{withNameAndCode: newWithNameAndCode(req)}
+
+	flTimeout := req.flags.AddString("timeout", "")
 	exec.RUN, err = parseRun(req)
 	if err != nil {
 		return nil, err
 	}
 
-	flTimeout := req.flags.AddString("timeout", "")
 	if err := req.flags.Parse(); err != nil {
 		return nil, err
 	}

@@ -3,7 +3,7 @@
 package dex2llb
 
 import (
-	instructions "github.com/dexnore/dexfile/converter"
+	instructions "github.com/dexnore/dexfile/instructions/converter"
 	"github.com/moby/buildkit/client/llb"
 )
 

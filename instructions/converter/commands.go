@@ -511,7 +511,6 @@ type Stage struct {
 	OrigCmd   string    // original FROM command, used for rule checks
 	BaseName  string    // name of the base stage or source
 	Platform  string    // platform of base source to use
-	Context   string    // external context of the base stage
 
 	Comment string // doc-comment directly above the stage
 

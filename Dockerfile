@@ -25,8 +25,9 @@ FROM base AS build
 RUN apk add --no-cache file
 ARG BUILDTAGS=""
 ARG TARGETPLATFORM
-RUN --mount=target=. --mount=type=cache,target=/root/.cache \
-  --mount=target=/go/pkg/mod,type=cache \
+RUN --mount=target=. \
+  --mount=type=cache,target=/root/.cache,sharing=shared,id=dexfile-root-cache \
+  --mount=type=cache,target=/go/pkg/mod,sharing=shared,id=dexfile-mod-cache \
   --mount=source=/tmp/.ldflags,target=/tmp/.ldflags,from=version \
   CGO_ENABLED=0 xx-go build -mod=readonly -o /dexfile-frontend -ldflags "-d $(cat /tmp/.ldflags)" -tags "$BUILDTAGS netgo static_build osusergo" ./cmd/dexfile && \
   xx-verify --static /dexfile-frontend

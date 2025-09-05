@@ -26,13 +26,17 @@ var (
 	keyImageConfig  = "dexnore:dexfile::image"
 )
 
-func dispatchExec(ctx context.Context, d *dispatchState, cmd converter.CommandExec, res *client.Result, opt dispatchOpt) (err error) {
-	defer func () {
+func dispatchExec(ctx context.Context, d *dispatchState, cmd converter.CommandExec, res *client.Result, opt dispatchOpt, copts ...llb.ConstraintsOpt) (err error) {
+	defer func() {
 		if err != nil {
 			err = parser.WithLocation(err, cmd.Location())
 		}
 	}()
-	ds, dOpt := d.Clone(), opt.Clone()
+	ds := d.Clone()
+	dOpt, err := opt.Clone()
+	if err != nil {
+		return err
+	}
 
 	dc, err := toCommand(cmd, dOpt.allDispatchStates)
 	if err != nil {
@@ -40,11 +44,15 @@ func dispatchExec(ctx context.Context, d *dispatchState, cmd converter.CommandEx
 	}
 
 	var execSources = dc.sources
-	if err := dispatchRun(ds, cmd.RUN, dOpt.proxyEnv, dc.sources, dOpt); err != nil {
+	ic, err := toCommand(cmd, dOpt.allDispatchStates)
+	if err != nil {
+		return err
+	}
+	if _, err := dispatch(ctx, ds, ic, dOpt, copts...); err != nil {
 		return err
 	}
 
-	def, err := ds.state.Marshal(ctx)
+	def, err := ds.state.Marshal(ctx, copts...)
 	if err != nil {
 		return err
 	}
@@ -65,10 +73,12 @@ func dispatchExec(ctx context.Context, d *dispatchState, cmd converter.CommandEx
 		return parser.WithLocation(errors.New("no conditional statement found"), cmd.Location())
 	}
 
-	ctr, ctrErr := createContainer(ctx, dOpt.solver.Client(), execop, res)
+	ctr, ctrErr := createContainer(ctx, dOpt.solver.Client(), execop, res.Ref)
 	if ctrErr != nil {
 		return parser.WithLocation(ctrErr, cmd.Location())
 	}
+
+	defer ctr.Release(ctx)
 
 	if execop.Exec != nil && execop.Exec.CdiDevices != nil {
 		return fmt.Errorf("CDI devices are not supported in [EXEC]")
@@ -77,10 +87,10 @@ func dispatchExec(ctx context.Context, d *dispatchState, cmd converter.CommandEx
 	var (
 		stdout = bytes.NewBuffer(nil)
 		stderr = bytes.NewBuffer(nil)
+		retErr bool
 	)
 
-	err = startProcess(ctx, ctr, cmd.TimeOut, *execop, func() error {
-		// d.state = d.state.Async(func(ctx context.Context, _ llb.State, llbc *llb.Constraints) (llb.State, error) {
+	retErr, _, err = startProcess(ctx, ctr, cmd.TimeOut, *execop, func() (bool, error) {
 		p := platforms.DefaultSpec()
 		if ds.platform != nil {
 			p = *ds.platform
@@ -88,7 +98,7 @@ func dispatchExec(ctx context.Context, d *dispatchState, cmd converter.CommandEx
 
 		s, err := parseDefinationToState(ctx, stdout, dOpt.solver.Client(), p)
 		if err != nil {
-			return err
+			return false, err
 		}
 		dc.sources = execSources
 
@@ -114,7 +124,7 @@ func dispatchExec(ctx context.Context, d *dispatchState, cmd converter.CommandEx
 					d.paths[p] = struct{}{}
 				}
 			} else {
-				return fmt.Errorf("unable to parse %s: %+v", keyPaths, vPaths)
+				return false, fmt.Errorf("unable to parse %s: %+v", keyPaths, vPaths)
 			}
 		}
 
@@ -130,7 +140,7 @@ func dispatchExec(ctx context.Context, d *dispatchState, cmd converter.CommandEx
 					d.ctxPaths[p] = struct{}{}
 				}
 			} else {
-				return fmt.Errorf("unable to parse %s: %+v", keyContextPaths, vCtxPaths)
+				return false, fmt.Errorf("unable to parse %s: %+v", keyContextPaths, vCtxPaths)
 			}
 		}
 
@@ -138,28 +148,26 @@ func dispatchExec(ctx context.Context, d *dispatchState, cmd converter.CommandEx
 			var img dockerspec.DockerOCIImage
 			if i, ok := vImgConfig.(string); ok {
 				if err = json.Unmarshal([]byte(i), &img); err != nil {
-					return err
+					return false, err
 				}
 			} else if i, ok := vImgConfig.(fmt.Stringer); ok {
 				if err = json.Unmarshal([]byte(i.String()), &img); err != nil {
-					return err
+					return false, err
 				}
 			} else {
-				return fmt.Errorf("unable to parse %s: %+v", keyImageConfig, vImgConfig)
+				return false, fmt.Errorf("unable to parse %s: %+v", keyImageConfig, vImgConfig)
 			}
 
 			d.image = internal.MergeDockerOCIImages(d.image, img)
 		}
 
-		d.state = llb.Merge([]llb.State{d.state, s})
-		// return s, nil
-		// })
-		return nil
+		d.state = llb.Merge([]llb.State{d.state, s}, append(copts, llb.WithCustomNamef("EXEC %s", strings.Join(cmd.RUN.CmdLine, " ")))...)
+		return false, nil
 	}, &nopCloser{stdout}, &nopCloser{stderr})
-	if err != nil {
+	if retErr {
 		return parser.WithLocation(fmt.Errorf("%s\n%w", stderr.String(), err), cmd.Location())
 	}
-	return nil
+	return err
 }
 
 func parseDefinationToState(ctx context.Context, data io.Reader, c client.Client, platform ocispecs.Platform) (st llb.State, err error) {

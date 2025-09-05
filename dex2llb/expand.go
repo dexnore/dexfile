@@ -38,14 +38,6 @@ func expandStage(st converter.Stage, globalArgs shell.EnvGetter, outline outline
 
 	maps.Copy(used, usedArgs)
 
-	if ds.stage.Context != "" {
-		ds.stage.Context, usedArgs, err = expandStageContext(st, globalArgs, outline.allArgs, lint, shlex)
-		if err != nil {
-			return nil, parser.WithLocation(fmt.Errorf("failed to expand stage context: %w", err), st.Location())
-		}
-		maps.Copy(used, usedArgs)
-	}
-
 	ds.outline = outline.clone()
 	maps.Copy(ds.outline.usedArgs, used)
 	return ds, nil
@@ -74,14 +66,6 @@ func expandImport(st converter.ImportCommand, globalArgs shell.EnvGetter, outlin
 	}
 
 	maps.Copy(used, usedArgs)
-
-	if ds.imports.Context != "" {
-		ds.imports.Context, usedArgs, err = expandImportContext(st, globalArgs, outline.allArgs, lint, shlex)
-		if err != nil {
-			return nil, parser.WithLocation(fmt.Errorf("failed to expand import context: %w", err), st.Location())
-		}
-		maps.Copy(used, usedArgs)
-	}
 
 	if ds.imports.Target != "" {
 		ds.imports.Target, usedArgs, err = expandImportTarget(st, globalArgs, outline.allArgs, lint, shlex)
@@ -239,30 +223,6 @@ func expandImportPlatform(st converter.ImportCommand, globalArgs shell.EnvGetter
 	}
 
 	return platMatch.Result, platMatch.Matched, nil
-}
-
-func expandStageContext(st converter.Stage, globalArgs shell.EnvGetter, args map[string]argInfo, lint *linter.Linter, shlex *shell.Lex) (string, map[string]struct{}, error) {
-	ctxMatch, err := shlex.ProcessWordWithMatches(st.Context, globalArgs)
-	argKeys := unusedFromArgsCheckKeys(globalArgs, args)
-	reportUnusedFromArgs(argKeys, ctxMatch.Unmatched, st.Location(), lint)
-
-	if err != nil {
-		return "", nil, parser.WithLocation(errors.Wrapf(err, "failed to process arguments for platform %s", ctxMatch.Result), st.Location())
-	}
-
-	return ctxMatch.Result, ctxMatch.Matched, nil
-}
-
-func expandImportContext(st converter.ImportCommand, globalArgs shell.EnvGetter, args map[string]argInfo, lint *linter.Linter, shlex *shell.Lex) (string, map[string]struct{}, error) {
-	ctxMatch, err := shlex.ProcessWordWithMatches(st.Context, globalArgs)
-	argKeys := unusedFromArgsCheckKeys(globalArgs, args)
-	reportUnusedFromArgs(argKeys, ctxMatch.Unmatched, st.Location(), lint)
-
-	if err != nil {
-		return "", nil, parser.WithLocation(errors.Wrapf(err, "failed to process arguments for platform %s", ctxMatch.Result), st.Location())
-	}
-
-	return ctxMatch.Result, ctxMatch.Matched, nil
 }
 
 func expandImportFilename(st converter.ImportCommand, globalArgs shell.EnvGetter, args map[string]argInfo, lint *linter.Linter, shlex *shell.Lex) (string, map[string]struct{}, error) {

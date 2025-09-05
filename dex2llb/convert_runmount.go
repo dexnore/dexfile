@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 
 	"github.com/dexnore/dexfile"
-	"github.com/dexnore/dexfile/context/maincontext"
 	instructions "github.com/dexnore/dexfile/instructions/converter"
 	"github.com/moby/buildkit/client/llb"
 	"github.com/moby/buildkit/solver/pb"
@@ -71,18 +70,7 @@ func dispatchRunMounts(d *dispatchState, c *instructions.RunCommand, sources []*
 		if mount.From == "" && mount.Type == instructions.MountTypeCache {
 			mount.From = dexfile.EmptyImageName
 		}
-		opts := filterPaths(d.ctxPaths)
-		bctx := opt.mainContext
-		if opt.buildClient != nil {
-			bctx, err = opt.buildClient.MainContext(context.Background(), opts...)
-			if err != nil {
-				return nil, err
-			}
-		} else if bctx == nil {
-			bctx = maincontext.DefaultMainContext(opts...)
-		}
-		opt.buildContext = *bctx
-		st := opt.buildContext
+		st := llb.NewState(opt.mutableBuildContextOutput)
 		if mount.From != "" {
 			src := sources[i]
 			st = src.state

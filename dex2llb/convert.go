@@ -3,9 +3,7 @@ package dex2llb
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
-	"maps"
 	"math"
 	"path"
 	"regexp"
@@ -18,20 +16,15 @@ import (
 
 	"github.com/containerd/platforms"
 	df "github.com/dexnore/dexfile"
-	config "github.com/dexnore/dexfile/client/config"
-	"github.com/dexnore/dexfile/context/buildcontext"
-	dexcontext "github.com/dexnore/dexfile/context/dexfile"
-	"github.com/dexnore/dexfile/context/maincontext"
-	instructions "github.com/dexnore/dexfile/instructions/converter"
+	"github.com/dexnore/dexfile/instructions/converter"
 	"github.com/dexnore/dexfile/instructions/parser"
 	"github.com/dexnore/dexfile/sbom"
 	"github.com/distribution/reference"
 	"github.com/moby/buildkit/client/llb"
 	"github.com/moby/buildkit/client/llb/imagemetaresolver"
-	"github.com/moby/buildkit/client/llb/sourceresolver"
-	"github.com/moby/buildkit/exporter/containerimage/exptypes"
 	"github.com/moby/buildkit/frontend/dockerfile/linter"
 	"github.com/moby/buildkit/frontend/dockerfile/shell"
+	"github.com/moby/buildkit/frontend/gateway/client"
 	"github.com/moby/buildkit/frontend/subrequests/lint"
 	"github.com/moby/buildkit/frontend/subrequests/outline"
 	"github.com/moby/buildkit/frontend/subrequests/targets"
@@ -43,7 +36,6 @@ import (
 	"github.com/moby/patternmatcher"
 	ocispecs "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/pkg/errors"
-	"golang.org/x/sync/errgroup"
 )
 
 const (
@@ -134,7 +126,7 @@ func ListTargets(ctx context.Context, dt []byte) (*targets.List, error) {
 		return nil, err
 	}
 
-	stages, _, err := instructions.Parse(dexfile.AST, nil)
+	stages, _, err := converter.Parse(dexfile.AST, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -145,7 +137,7 @@ func ListTargets(ctx context.Context, dt []byte) (*targets.List, error) {
 
 	for i, s := range stages {
 		switch s := s.(type) {
-		case *instructions.Stage:
+		case *converter.Stage:
 			t := targets.Target{
 				Name:        s.StageName,
 				Description: s.Comment,
@@ -155,7 +147,7 @@ func ListTargets(ctx context.Context, dt []byte) (*targets.List, error) {
 				Location:    toSourceLocation(s.Location()),
 			}
 			l.Targets = append(l.Targets, t)
-		case *instructions.ImportCommand:
+		case *converter.ImportCommand:
 			t := targets.Target{
 				Name:        s.StageName,
 				Description: s.Comment,
@@ -250,7 +242,6 @@ func toDispatchState(ctx context.Context, dt []byte, opt df.ConvertOpt) (_ *disp
 	}
 
 	proxyEnv := proxyEnvFromBuildArgs(opt.Config.BuildArgs)
-
 	stages, metaCmds, err := parseAndValidateDexfile(dexfile.AST, lint)
 	if err != nil {
 		return nil, err
@@ -272,9 +263,9 @@ func toDispatchState(ctx context.Context, dt []byte, opt df.ConvertOpt) (_ *disp
 	targetName := opt.Config.Target
 	if targetName == "" {
 		switch st := stages[len(stages)-1].(type) {
-		case *instructions.Stage:
+		case *converter.Stage:
 			targetName = st.StageName
-		case *instructions.ImportCommand:
+		case *converter.ImportCommand:
 			targetName = st.StageName
 		default:
 			return nil, errors.Errorf("unknown stage type %T", st)
@@ -284,42 +275,146 @@ func toDispatchState(ctx context.Context, dt []byte, opt df.ConvertOpt) (_ *disp
 	shlex := shell.NewLex(dexfile.EscapeToken)
 	outline := newOutlineCapture()
 	allDispatchStates := newDispatchStates()
-	argCmds := make([]instructions.ArgCommand, 0)
-	var metaState = llb.Image(metaStageName)
-	var functions = make(map[string]instructions.Function, 0)
-	for i, cmd := range metaCmds {
-		var metaArgs = make([]instructions.ArgCommand, 0)
-		var fun = make([]instructions.Function, 0)
-		metaArgs, fun, globalArgs, outline, metaState, err = resolveMetaCmds(cmd, argCmds, globalArgs, outline, metaState, metaresolverOpt{
-			i:                 i,
-			shlex:             shlex,
-			options:           opt,
-			pOpt:              *platformOpt,
-			lint:              lint,
-			proxy:             proxyEnv,
-			stage:             instructions.Stage{BaseName: metaStageName},
-			allDispatchStates: allDispatchStates,
-			namedContext:      namedContext,
-			baseContext:       baseContext,
-		})
+	var functions = make(map[string]*converter.Function, 0)
+	globalArgs, outline, err = expandAndAddDispatchState(0, converter.Stage{StageName: "meta-stage", BaseName: metaStageName}, expandStageOpt{
+		globalArgs:        globalArgs,
+		outline:           outline,
+		lint:              lint,
+		shlex:             shlex,
+		opt:               opt,
+		allDispatchStates: allDispatchStates,
+		namedContext:      namedContext,
+		stageName:         "meta-stage",
+	})
+	if err != nil {
+		return nil, err
+	}
+	metads := allDispatchStates.states[0]
+	platform := metads.platform
+	if platform == nil {
+		platform = &platformOpt.targetPlatform
+	}
+	metads.state = llb.Image(metads.BaseName(),
+		dfCmd(metads.SourceCode()),
+		llb.Platform(*platform),
+		opt.Config.ImageResolveMode,
+		llb.WithCustomName(prefixCommand(metads, "FROM "+metads.BaseName(), opt.Config.MultiPlatformRequested, platform, emptyEnvs{})),
+		location(opt.SourceMap, metads.Location()),
+	)
+	for _, k := range globalArgs.Keys() {
+		if v, ok := globalArgs.Get(k); ok {
+			metads.state = metads.state.AddEnv(k, v)
+		}
+	}
+	buildContext := &mutableDexfileOutput{}
+	var dexnoreMatcher *patternmatcher.PatternMatcher
+	if opt.BC != nil {
+		dexnorePatterns, err := opt.BC.Dexnore(ctx)
 		if err != nil {
 			return nil, err
 		}
-
-		for _, f := range fun {
-			if _, ok := functions[f.FuncName]; ok {
-				return nil, fmt.Errorf("function redeclared: %q", f.FuncName)
+		if len(dexnorePatterns) > 0 {
+			dexnoreMatcher, err = patternmatcher.New(dexnorePatterns)
+			if err != nil {
+				return nil, err
 			}
-			functions[f.FuncName] = f
 		}
+	}
+	dOpt := dispatchOpt{
+		allDispatchStates: allDispatchStates,
+		globalArgs:        globalArgs,
+		buildArgValues:    opt.Config.BuildArgs,
+		shlex:             shlex,
+		buildContext:      llb.NewState(buildContext),
+		proxyEnv:          proxyEnv,
+		cacheIDNamespace:  opt.Config.CacheIDNamespace,
+		buildPlatforms:    platformOpt.buildPlatforms,
+		targetPlatform:    platformOpt.targetPlatform,
+		extraHosts:        opt.Config.ExtraHosts,
+		shmSize:           opt.Config.ShmSize,
+		ulimit:            opt.Config.Ulimits,
+		devices:           opt.Config.Devices,
+		cgroupParent:      opt.Config.CgroupParent,
+		llbCaps:           opt.LLBCaps,
+		sourceMap:         opt.SourceMap,
+		lint:              lint,
+		dexnoreMatcher:    dexnoreMatcher,
+		solver:            opt.Solver,
+		buildClient:       opt.BC,
+		mainContext:       opt.MainContext,
+		functions:         functions,
+		stageResolver: &stageResolver{
+			allDispatchStates: allDispatchStates,
+			namedContext: namedContext,
+			platformOpt: platformOpt,
+			metaResolver: metaResolver,
+			lint: lint,
+			opt: opt,
+		},
+		convertOpt: opt,
+		mutableBuildContextOutput: buildContext,
+	}
 
-		argCmds = append(argCmds, metaArgs...)
-		// Rebuild the arguments using the provided build arguments
-		// for the remainder of the build.
-		globalArgs, outline.allArgs, err = buildMetaArgs(globalArgs, shlex, argCmds, opt.Config.BuildArgs)
-		if err != nil {
-			return nil, err
+	for i, cmd := range metaCmds {
+		switch cmd := cmd.(type) {
+		case *converter.Stage:
+			globalArgs, outline, err = expandAndAddDispatchState(i, *cmd, expandStageOpt{
+				globalArgs:        globalArgs,
+				outline:           outline,
+				lint:              lint,
+				shlex:             shlex,
+				opt:               opt,
+				allDispatchStates: allDispatchStates,
+				namedContext:      namedContext,
+				stageName:         "meta",
+			})
+			if err != nil {
+				return nil, err
+			}
+		case *converter.ImportCommand:
+			globalArgs, outline, err = expandImportAndAddDispatchState(i, *cmd, expandImportOpt{
+				globalArgs:        globalArgs,
+				outline:           outline,
+				lint:              lint,
+				shlex:             shlex,
+				options:           opt,
+				allDispatchStates: allDispatchStates,
+				namedContext:      baseContext,
+				stageName:         "meta",
+			})
+			if err != nil {
+				return nil, err
+			}
+		case *converter.ConditionIF, *converter.ConditionElse, *converter.EndContainer, *converter.EndFunction, *converter.EndIf, *converter.CommandBuild:
+			return nil, fmt.Errorf("unsupported command %+v in meta stage", cmd)
+		default:
+			ic, err := toCommand(cmd, allDispatchStates)
+			if err != nil {
+				return nil, err
+			}
+			_, err = dispatch(ctx, metads, ic, dOpt)
+			if err != nil {
+				return nil, parser.WithLocation(err, cmd.Location())
+			}
 		}
+	}
+
+	def, err := metads.state.Marshal(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	_, err = opt.Client.Solve(ctx, client.SolveRequest{
+		Evaluate: true,
+		Definition: def.ToPB(),
+		CacheImports: opt.Config.CacheImports,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	for _, kvp := range metads.buildArgs {
+		globalArgs = globalArgs.AddOrReplace(kvp.Key, kvp.ValueString())
 	}
 
 	validateStageNames(stages, lint)
@@ -327,12 +422,12 @@ func toDispatchState(ctx context.Context, dt []byte, opt df.ConvertOpt) (_ *disp
 
 	// Validate that base images continue to be valid even
 	// when no build arguments are used.
-	validateBaseImagesWithDefaultArgs(stages, shlex, globalArgs, argCmds, lint)
+	validateBaseImagesWithDefaultArgs(stages, shlex, globalArgs, nil, lint)
 
 	// set base state for every image
 	for i, st := range stages {
 		switch st := st.(type) {
-		case *instructions.Stage:
+		case *converter.Stage:
 			globalArgs, outline, err = expandAndAddDispatchState(i, *st, expandStageOpt{
 				globalArgs:        globalArgs,
 				outline:           outline,
@@ -346,7 +441,7 @@ func toDispatchState(ctx context.Context, dt []byte, opt df.ConvertOpt) (_ *disp
 			if err != nil {
 				return nil, err
 			}
-		case *instructions.ImportCommand:
+		case *converter.ImportCommand:
 			globalArgs, outline, err = expandImportAndAddDispatchState(i, *st, expandImportOpt{
 				globalArgs:        globalArgs,
 				outline:           outline,
@@ -384,488 +479,13 @@ func toDispatchState(ctx context.Context, dt []byte, opt df.ConvertOpt) (_ *disp
 		allDispatchStates.states[0].stageName = ""
 	}
 
-	resolveReachableStages := func(ctx context.Context, all []*dispatchState, target *dispatchState) (map[*dispatchState]struct{}, error) {
-		allReachable := allReachableStages(target)
-		eg, ctx := errgroup.WithContext(ctx)
-		for i, d := range all {
-			_, reachable := allReachable[d]
-			if opt.AllStages {
-				reachable = true
-			}
-			// resolve image config for every stage
-			if d.base == nil && !d.dispatched && !d.resolved {
-				d.resolved = reachable // avoid re-resolving if called again after onbuild
-				if d.BaseName() == df.EmptyImageName && d.namedContext == nil {
-					d.state = llb.Scratch()
-					d.image = emptyImage(platformOpt.targetPlatform)
-					d.platform = &platformOpt.targetPlatform
-					if d.unregistered {
-						d.dispatched = true
-					}
-					continue
-				}
-
-				func(i int, d *dispatchState) {
-					eg.Go(func() (err error) {
-						defer func() {
-							if err != nil {
-								err = parser.WithLocation(err, d.Location())
-							}
-							if d.unregistered {
-								// implicit stages don't need further dispatch
-								d.dispatched = true
-							}
-						}()
-						origName := d.BaseName()
-						var ref reference.Named
-						if d.stage.BaseName != "" {
-							ref, err = reference.ParseNormalizedNamed(d.BaseName())
-							if err != nil {
-								return errors.Wrapf(err, "failed to parse stage name %q", origName)
-							}
-							d.SetBaseName(reference.TagNameOnly(ref).String())
-						}
-						platform := d.platform
-						if platform == nil {
-							platform = &platformOpt.targetPlatform
-						}
-						var isScratch bool
-						if reachable {
-							isStage := d.stage.BaseName != ""
-							// stage was named context
-							if d.namedContext != nil {
-								st, img, err := d.namedContext.Load(ctx)
-								if err != nil {
-									return err
-								}
-								d.dispatched = true
-								d.state = *st
-								if img != nil {
-									// timestamps are inherited as-is, regardless to SOURCE_DATE_EPOCH
-									// https://github.com/moby/buildkit/issues/4614
-									d.image = *img
-									if img.Architecture != "" && img.OS != "" {
-										d.platform = &ocispecs.Platform{
-											OS:           img.OS,
-											Architecture: img.Architecture,
-											Variant:      img.Variant,
-											OSVersion:    img.OSVersion,
-										}
-										if img.OSFeatures != nil {
-											d.platform.OSFeatures = slices.Clone(img.OSFeatures)
-										}
-									}
-								}
-
-								if !isStage && d.imports.FileName != "" {
-									filenames := []string{d.imports.FileName, d.imports.FileName + df.DefaultDexnoreName}
-
-									// dockerfile is also supported casing moby/moby#10858
-									if path.Base(d.imports.FileName) == df.DefaultDexfileName {
-										filenames = append(filenames, path.Join(path.Dir(d.imports.FileName), strings.ToLower(df.DefaultDexfileName)))
-									}
-
-									bc, err := opt.BC.BuildContext(ctx)
-									if err != nil {
-										return err
-									}
-									bc.Context = &d.state
-									bc.Dexfile = &d.state
-									bc.Filename = d.imports.FileName
-									dfile := dexcontext.New(opt.Client, bc)
-									src, err := dfile.Dexfile(ctx, df.DefaultDexfileName, llb.FollowPaths(filenames))
-									if err != nil {
-										return err
-									}
-
-									bc.Dexfile = src.Sources().State
-
-									c := opt.Client.Clone()
-									c.DelOpt("cmdline")
-									c.DelOpt("source")
-									c.DelOpt("build-arg:BUILDKIT_SYNTAX")
-									c.SetOpt(buildcontext.KeyFilename, d.imports.FileName)
-									c.SetOpt(config.KeyTarget, d.imports.Target)
-									for _, v := range d.imports.Options {
-										c.SetOpt(v.Key, v.ValueString())
-									}
-									if err = c.InitConfig(); err != nil {
-										return err
-									}
-									slver, err := opt.Solver.With(c, bc, false)
-									if err != nil {
-										return err
-									}
-
-									res, err := slver.Solve(ctx)
-									if err != nil {
-										return err
-									}
-
-									pt := platforms.FormatAll(*platform)
-									ref, ok := res.FindRef(pt)
-									if !ok {
-										return errors.Errorf("no import found with platform %s", pt)
-									}
-
-									d.state, err = ref.ToState()
-									if err != nil {
-										return err
-									}
-
-									imgBytes := res.Metadata[fmt.Sprintf("%s/%s", exptypes.ExporterImageConfigKey, pt)]
-									if len(imgBytes) == 0 {
-										imgBytes = res.Metadata[exptypes.ExporterImageConfigKey]
-									}
-
-									var img *dockerspec.DockerOCIImage
-									if err := json.Unmarshal(imgBytes, img); err != nil {
-										i := emptyImage(*platform)
-										img = &i
-									}
-									d.image = *img
-
-									var baseImg *dockerspec.DockerOCIImage
-									baseImgBytes := res.Metadata[fmt.Sprintf("%s/%s", exptypes.ExporterImageBaseConfigKey, pt)]
-									if len(imgBytes) == 0 {
-										baseImgBytes = res.Metadata[exptypes.ExporterImageBaseConfigKey]
-									}
-									if err := json.Unmarshal(baseImgBytes, baseImg); err != nil {
-										img = new(dockerspec.DockerOCIImage) // avoid nil pointer
-										*img = emptyImage(*platform)
-									}
-									d.baseImg = baseImg
-
-									d.platform = platform
-									return nil
-								}
-								return nil
-							}
-							if isStage {
-								// check if base is named context
-								nc, err := namedContext(d.BaseName(), df.ContextOpt{
-									ResolveMode:    opt.Config.ImageResolveMode.String(),
-									Platform:       platform,
-									AsyncLocalOpts: d.asyncLocalOpts,
-								})
-								if err != nil {
-									return err
-								}
-								if nc != nil {
-									st, img, err := nc.Load(ctx)
-									if err != nil {
-										return err
-									}
-									if st == nil {
-										return errors.Errorf("named context %q did not return a valid state", d.BaseName())
-									}
-									if img != nil {
-										d.image = *img
-									} else {
-										d.image = emptyImage(platformOpt.targetPlatform)
-									}
-									d.state = st.Platform(*platform)
-									d.platform = platform
-									return nil
-								}
-								prefix := "["
-								if opt.Config.MultiPlatformRequested && platform != nil {
-									prefix += platforms.FormatAll(*platform) + " "
-								}
-								prefix += "internal]"
-								mutRef, dgst, dt, err := metaResolver.ResolveImageConfig(ctx, d.BaseName(), sourceresolver.Opt{
-									LogName:  fmt.Sprintf("%s load metadata for %s", prefix, d.BaseName()),
-									Platform: platform,
-									ImageOpt: &sourceresolver.ResolveImageOpt{
-										ResolveMode: opt.Config.ImageResolveMode.String(),
-									},
-								})
-								if err != nil {
-									return suggest.WrapError(errors.Wrap(err, origName), origName, append(allDispatchStates.names(), commonImageNames()...), true)
-								}
-
-								if ref.String() != mutRef {
-									ref, err = reference.ParseNormalizedNamed(mutRef)
-									if err != nil {
-										return errors.Wrapf(err, "failed to parse ref %q", mutRef)
-									}
-								}
-								var img dockerspec.DockerOCIImage
-								if err := json.Unmarshal(dt, &img); err != nil {
-									return errors.Wrap(err, "failed to parse image config")
-								}
-								d.baseImg = cloneX(&img) // immutable
-								img.Created = nil
-								// if there is no explicit target platform, try to match based on image config
-								if d.platform == nil && platformOpt.implicitTarget {
-									p := autoDetectPlatform(img, *platform, platformOpt.buildPlatforms)
-									platform = &p
-								}
-								if dgst != "" {
-									ref, err = reference.WithDigest(ref, dgst)
-									if err != nil {
-										return err
-									}
-								}
-								d.SetBaseName(ref.String())
-								if len(img.RootFS.DiffIDs) == 0 {
-									isScratch = true
-									// schema1 images can't return diffIDs so double check :(
-									for _, h := range img.History {
-										if !h.EmptyLayer {
-											isScratch = false
-											break
-										}
-									}
-								}
-								d.image = img
-							}
-						}
-						if isScratch {
-							d.state = llb.Scratch()
-						} else {
-							d.state = llb.Image(d.BaseName(),
-								dfCmd(d.SourceCode()),
-								llb.Platform(*platform),
-								opt.Config.ImageResolveMode,
-								llb.WithCustomName(prefixCommand(d, "FROM "+d.BaseName(), opt.Config.MultiPlatformRequested, platform, emptyEnvs{})),
-								location(opt.SourceMap, d.Location()),
-							)
-							if reachable {
-								validateBaseImagePlatform(origName, *platform, d.image.Platform, d.Location(), lint)
-							}
-						}
-						d.platform = platform
-						return nil
-					})
-				}(i, d)
-			}
-		}
-
-		if err := eg.Wait(); err != nil {
-			return nil, err
-		}
-		return allReachable, nil
-	}
-
-	var allReachable map[*dispatchState]struct{}
-	for {
-		allReachable, err = resolveReachableStages(ctx, allDispatchStates.states, target)
-		if err != nil {
-			return nil, err
-		}
-
-		// initialize onbuild triggers in case they create new dependencies
-		newDeps := false
-		for d := range allReachable {
-			d.init()
-
-			onbuilds := slices.Clone(d.image.Config.OnBuild)
-			if d.base != nil && !d.onBuildInit {
-				for _, cmd := range d.base.commands {
-					if obCmd, ok := cmd.Command.(*instructions.OnbuildCommand); ok {
-						onbuilds = append(onbuilds, obCmd.Expression)
-					}
-				}
-				d.onBuildInit = true
-			}
-
-			if len(onbuilds) > 0 {
-				if b, err := initOnBuildTriggers(d, onbuilds, allDispatchStates); err != nil {
-					return nil, parser.SetLocation(err, d.Location())
-				} else if b {
-					newDeps = true
-				}
-				d.image.Config.OnBuild = nil
-			}
-		}
-		// in case new dependencies were added, we need to re-resolve reachable stages
-		if !newDeps {
-			break
-		}
-	}
-
-	buildContext := &mutableDexfileOutput{}
-	ctxPaths := map[string]struct{}{}
-
-	var dexnoreMatcher *patternmatcher.PatternMatcher
-	if opt.BC != nil {
-		dexnorePatterns, err := opt.BC.Dexnore(ctx)
-		if err != nil {
-			return nil, err
-		}
-		if len(dexnorePatterns) > 0 {
-			dexnoreMatcher, err = patternmatcher.New(dexnorePatterns)
-			if err != nil {
-				return nil, err
-			}
-		}
-	}
-
-	for _, d := range allDispatchStates.states {
-		if !opt.AllStages {
-			if _, ok := allReachable[d]; !ok || d.dispatched {
-				continue
-			}
-		}
-		d.init()
-		d.dispatched = true
-
-		// Ensure platform is set.
-		if d.platform == nil {
-			d.platform = &d.opt.targetPlatform
-		}
-
-		// make sure that PATH is always set
-		if _, ok := shell.EnvsFromSlice(d.image.Config.Env).Get("PATH"); !ok {
-			var osName string
-			if d.platform != nil {
-				osName = d.platform.OS
-			}
-			// except for Windows, leave that to the OS. #5445
-			if osName != "windows" {
-				d.image.Config.Env = append(d.image.Config.Env, "PATH="+system.DefaultPathEnv(osName))
-			}
-		}
-
-		// initialize base metadata from image conf
-		for _, env := range d.image.Config.Env {
-			k, v := parseKeyValue(env)
-			d.state = d.state.AddEnv(k, v)
-		}
-		if opt.Config.Hostname != "" {
-			d.state = d.state.Hostname(opt.Config.Hostname)
-		}
-		if d.image.Config.WorkingDir != "" {
-			if err = dispatchWorkdir(d, &instructions.WorkdirCommand{Path: d.image.Config.WorkingDir}, false, nil); err != nil {
-				return nil, parser.WithLocation(err, d.Location())
-			}
-		}
-		if d.image.Config.User != "" {
-			if err = dispatchUser(d, &instructions.UserCommand{User: d.image.Config.User}, false); err != nil {
-				return nil, parser.WithLocation(err, d.Location())
-			}
-		}
-
-		d.state = d.state.Network(opt.Config.NetworkMode)
-
-		opt := dispatchOpt{
-			allDispatchStates: allDispatchStates,
-			globalArgs:        globalArgs,
-			buildArgValues:    opt.Config.BuildArgs,
-			shlex:             shlex,
-			buildContext:      llb.NewState(buildContext),
-			proxyEnv:          proxyEnv,
-			cacheIDNamespace:  opt.Config.CacheIDNamespace,
-			buildPlatforms:    platformOpt.buildPlatforms,
-			targetPlatform:    platformOpt.targetPlatform,
-			extraHosts:        opt.Config.ExtraHosts,
-			shmSize:           opt.Config.ShmSize,
-			ulimit:            opt.Config.Ulimits,
-			devices:           opt.Config.Devices,
-			cgroupParent:      opt.Config.CgroupParent,
-			llbCaps:           opt.LLBCaps,
-			sourceMap:         opt.SourceMap,
-			lint:              lint,
-			dexnoreMatcher:    dexnoreMatcher,
-			solver:            opt.Solver,
-			buildClient: opt.BC,
-			mainContext: opt.MainContext,
-			functions: functions,
-		}
-
-		d.opt = opt
-		for _, cmd := range d.commands {
-			if err = dispatch(ctx, d, cmd, opt); err != nil {
-				err = parser.WithLocation(err, cmd.Location())
-				return nil, err
-			}
-		}
-
-		for p := range d.ctxPaths {
-			ctxPaths[p] = struct{}{}
-		}
-
-		for _, name := range []string{sbomScanContext, sbomScanStage} {
-			var b bool
-			if v, ok := d.opt.globalArgs.Get(name); ok {
-				b = isEnabledForStage(d.stageName, v)
-			}
-			for _, kv := range d.buildArgs {
-				if kv.Key == name && kv.Value != nil {
-					b = isEnabledForStage(d.stageName, *kv.Value)
-				}
-			}
-			if b {
-				if name == sbomScanContext {
-					d.scanContext = true
-				} else {
-					d.scanStage = true
-				}
-			}
-		}
-	}
-
-	// Ensure the entirety of the target state is marked as used.
-	// This is done after we've already evaluated every stage to ensure
-	// the paths attribute is set correctly.
-	target.paths["/"] = struct{}{}
-
-	if len(opt.Config.Labels) != 0 && target.image.Config.Labels == nil {
-		target.image.Config.Labels = make(map[string]string, len(opt.Config.Labels))
-	}
-	maps.Copy(target.image.Config.Labels, opt.Config.Labels)
-
-	// If lint.Error() returns an error, it means that
-	// there were warnings, and that our linter has been
-	// configured to return an error on warnings,
-	// so we appropriately return that error here.
-	if err := lint.Error(); err != nil {
-		return nil, err
-	}
-
-	opts := filterPaths(ctxPaths)
-	bctx := opt.MainContext
-	if opt.BC != nil {
-		bctx, err = opt.BC.MainContext(ctx, opts...)
-		if err != nil {
-			return nil, err
-		}
-	} else if bctx == nil {
-		bctx = maincontext.DefaultMainContext(opts...)
-	}
-	buildContext.Output = bctx.Output()
-
-	defaults := []llb.ConstraintsOpt{
-		llb.Platform(platformOpt.targetPlatform),
-	}
-	if opt.LLBCaps != nil {
-		defaults = append(defaults, llb.WithCaps(*opt.LLBCaps))
-	}
-	target.state = target.state.SetMarshalDefaults(defaults...)
-
-	if !platformOpt.implicitTarget {
-		sameOsArch := platformOpt.targetPlatform.OS == target.image.OS && platformOpt.targetPlatform.Architecture == target.image.Architecture
-		target.image.OS = platformOpt.targetPlatform.OS
-		target.image.Architecture = platformOpt.targetPlatform.Architecture
-		if platformOpt.targetPlatform.Variant != "" || !sameOsArch {
-			target.image.Variant = platformOpt.targetPlatform.Variant
-		}
-		if platformOpt.targetPlatform.OSVersion != "" || !sameOsArch {
-			target.image.OSVersion = platformOpt.targetPlatform.OSVersion
-		}
-		if platformOpt.targetPlatform.OSFeatures != nil {
-			target.image.OSFeatures = slices.Clone(platformOpt.targetPlatform.OSFeatures)
-		}
-	}
-	target.image.Platform = platforms.Normalize(target.image.Platform)
-
-	return target, nil
+	retDs, _, err := solveStage(ctx, target, buildContext, dOpt)
+	return retDs, err
 }
 
-func toCommand(ic instructions.Command, allDispatchStates *dispatchStates) (command, error) {
+func toCommand(ic converter.Command, allDispatchStates *dispatchStates) (command, error) {
 	cmd := command{Command: ic}
-	if c, ok := ic.(*instructions.CopyCommand); ok {
+	if c, ok := ic.(*converter.CopyCommand); ok {
 		if c.From != "" {
 			var stn *dispatchState
 			index, err := strconv.Atoi(c.From)
@@ -873,8 +493,8 @@ func toCommand(ic instructions.Command, allDispatchStates *dispatchStates) (comm
 				stn, ok = allDispatchStates.findStateByName(c.From)
 				if !ok {
 					stn = &dispatchState{
-						stage:        instructions.Stage{BaseName: c.From, Loc: c.Location()},
-						deps:         make(map[*dispatchState]instructions.Command),
+						stage:        converter.Stage{BaseName: c.From, Loc: c.Location()},
+						deps:         make(map[*dispatchState]converter.Command),
 						paths:        make(map[string]struct{}),
 						unregistered: true,
 					}
@@ -889,7 +509,7 @@ func toCommand(ic instructions.Command, allDispatchStates *dispatchStates) (comm
 		}
 	}
 
-	if c, ok := ic.(*instructions.CommandConatainer); ok {
+	if c, ok := ic.(*converter.CommandConatainer); ok {
 		if c.From != "" {
 			var stn *dispatchState
 			index, err := strconv.Atoi(c.From)
@@ -897,8 +517,8 @@ func toCommand(ic instructions.Command, allDispatchStates *dispatchStates) (comm
 				stn, ok = allDispatchStates.findStateByName(c.From)
 				if !ok {
 					stn = &dispatchState{
-						stage:        instructions.Stage{BaseName: c.From, Loc: c.Location()},
-						deps:         make(map[*dispatchState]instructions.Command),
+						stage:        converter.Stage{BaseName: c.From, Loc: c.Location()},
+						deps:         make(map[*dispatchState]converter.Command),
 						paths:        make(map[string]struct{}),
 						unregistered: true,
 					}
@@ -940,6 +560,11 @@ func (e *envsFromState) init() {
 
 func (e *envsFromState) Get(key string) (string, bool) {
 	e.once.Do(e.init)
+	if v, err := e.state.Value(context.TODO(), df.ScopedVariable(key)); err == nil {
+		if v, ok := v.(string); ok {
+			return v, true
+		}
+	}
 	return e.env.Get(key)
 }
 
@@ -975,11 +600,13 @@ func (ds *dispatchState) init() {
 
 type dispatchStates struct {
 	states       []*dispatchState
+	immutableStates []*dispatchState
 	statesByName map[string]*dispatchState
+	immutableStatesByName map[string]*dispatchState
 }
 
 func newDispatchStates() *dispatchStates {
-	return &dispatchStates{statesByName: map[string]*dispatchState{}}
+	return &dispatchStates{statesByName: map[string]*dispatchState{}, immutableStatesByName: map[string]*dispatchState{}}
 }
 
 func (dss *dispatchStates) names() []string {
@@ -993,6 +620,7 @@ func (dss *dispatchStates) names() []string {
 }
 
 func (dss *dispatchStates) addState(ds *dispatchState) {
+	dss.immutableStates = append(dss.immutableStates, ds.Clone())
 	dss.states = append(dss.states, ds)
 
 	if d, ok := dss.statesByName[ds.BaseName()]; ok {
@@ -1001,8 +629,10 @@ func (dss *dispatchStates) addState(ds *dispatchState) {
 	}
 
 	if ds.stage.StageName != "" {
+		dss.immutableStatesByName[strings.ToLower(ds.stage.StageName)] = ds.Clone()
 		dss.statesByName[strings.ToLower(ds.stage.StageName)] = ds
 	} else if ds.imports.StageName != "" {
+		dss.immutableStatesByName[strings.ToLower(ds.imports.StageName)] = ds.Clone()
 		dss.statesByName[strings.ToLower(ds.imports.StageName)] = ds
 	}
 }
@@ -1025,7 +655,7 @@ func (dss *dispatchStates) lastTarget() *dispatchState {
 }
 
 type command struct {
-	instructions.Command
+	converter.Command
 	sources   []*dispatchState
 	isOnBuild bool
 }
@@ -1047,7 +677,7 @@ func initOnBuildTriggers(d *dispatchState, triggers []string, allDispatchStates 
 		node := ast.AST.Children[0]
 		// reset the location to the onbuild trigger
 		node.StartLine, node.EndLine = rangeStartEnd(d.Location())
-		ic, err := instructions.ParseCommand(ast.AST.Children[0])
+		ic, err := converter.ParseCommand(ast.AST.Children[0])
 		if err != nil {
 			return false, err
 		}
@@ -1127,7 +757,7 @@ func parseKeyValue(env string) (string, string) {
 }
 
 func dfCmd(cmd any) llb.ConstraintsOpt {
-	// TODO: add fmt.Stringer to instructions.Command to remove interface{}
+	// TODO: add fmt.Stringer to converter.Command to remove interface{}
 	var cmdStr string
 	if cmd, ok := cmd.(fmt.Stringer); ok {
 		cmdStr = cmd.String()
@@ -1140,7 +770,7 @@ func dfCmd(cmd any) llb.ConstraintsOpt {
 	})
 }
 
-func runCommandString(args []string, buildArgs []instructions.KeyValuePairOptional, env shell.EnvGetter) string {
+func runCommandString(args []string, buildArgs []converter.KeyValuePairOptional, env shell.EnvGetter) string {
 	var tmpBuildEnv []string
 	tmpIdx := map[string]int{}
 	for _, arg := range buildArgs {
@@ -1217,14 +847,14 @@ func validateCopySourcePath(src string, cfg *copyConfig) error {
 }
 
 func validateCircularDependency(states []*dispatchState) error {
-	var visit func(*dispatchState, []instructions.Command) []instructions.Command
+	var visit func(*dispatchState, []converter.Command) []converter.Command
 	if states == nil {
 		return nil
 	}
 	visited := make(map[*dispatchState]struct{})
 	path := make(map[*dispatchState]struct{})
 
-	visit = func(state *dispatchState, current []instructions.Command) []instructions.Command {
+	visit = func(state *dispatchState, current []converter.Command) []converter.Command {
 		_, ok := visited[state]
 		if ok {
 			return nil
@@ -1509,9 +1139,9 @@ func validateCaseMatch(name string, isMajorityLower bool, location []parser.Rang
 	}
 }
 
-func validateCommandCasing(stages []instructions.Adder, lint *linter.Linter) {
+func validateCommandCasing(stages []converter.Adder, lint *linter.Linter) {
 	var lowerCount, upperCount int
-	caseCount := func(origCmd string, cmds []instructions.Command) {
+	caseCount := func(origCmd string, cmds []converter.Command) {
 		if isSelfConsistentCasing(origCmd) {
 			if strings.ToLower(origCmd) == origCmd {
 				lowerCount++
@@ -1532,9 +1162,9 @@ func validateCommandCasing(stages []instructions.Adder, lint *linter.Linter) {
 	}
 	for _, stage := range stages {
 		switch stage := stage.(type) {
-		case *instructions.Stage:
+		case *converter.Stage:
 			caseCount(stage.OrigCmd, stage.Commands)
-		case *instructions.ImportCommand:
+		case *converter.ImportCommand:
 			caseCount(stage.OrigCmd, stage.Commands)
 		}
 	}
@@ -1545,12 +1175,12 @@ func validateCommandCasing(stages []instructions.Adder, lint *linter.Linter) {
 		// as well as ensuring that the casing is consistent throughout the dockerfile by comparing the
 		// command to the casing of the majority of commands.
 		switch stage := stage.(type) {
-		case *instructions.Stage:
+		case *converter.Stage:
 			validateCaseMatch(stage.OrigCmd, isMajorityLower, stage.Location(), lint)
 			for _, cmd := range stage.Commands {
 				validateCaseMatch(cmd.Name(), isMajorityLower, cmd.Location(), lint)
 			}
-		case *instructions.ImportCommand:
+		case *converter.ImportCommand:
 			validateCaseMatch(stage.OrigCmd, isMajorityLower, stage.Location(), lint)
 			for _, cmd := range stage.Commands {
 				validateCaseMatch(cmd.Name(), isMajorityLower, cmd.Location(), lint)
@@ -1564,11 +1194,11 @@ var reservedStageNames = map[string]struct{}{
 	"scratch": {},
 }
 
-func validateStageNames(stages []instructions.Adder, lint *linter.Linter) {
+func validateStageNames(stages []converter.Adder, lint *linter.Linter) {
 	stageNames := make(map[string]struct{})
 	for _, stage := range stages {
 		switch stage := stage.(type) {
-		case *instructions.Stage:
+		case *converter.Stage:
 			if _, ok := reservedStageNames[stage.StageName]; ok && stage.StageName != "" {
 				msg := linter.RuleReservedStageName.Format(stage.StageName)
 				lint.Run(&linter.RuleReservedStageName, stage.Location(), msg)
@@ -1579,7 +1209,7 @@ func validateStageNames(stages []instructions.Adder, lint *linter.Linter) {
 				lint.Run(&linter.RuleDuplicateStageName, stage.Location(), msg)
 			}
 			stageNames[stage.StageName] = struct{}{}
-		case *instructions.ImportCommand:
+		case *converter.ImportCommand:
 			if _, ok := reservedStageNames[stage.StageName]; ok && stage.StageName != "" {
 				msg := linter.RuleReservedStageName.Format(stage.StageName)
 				lint.Run(&linter.RuleReservedStageName, stage.Location(), msg)
@@ -1594,7 +1224,7 @@ func validateStageNames(stages []instructions.Adder, lint *linter.Linter) {
 	}
 }
 
-func reportUnmatchedVariables(cmd instructions.Command, buildArgs []instructions.KeyValuePairOptional, env shell.EnvGetter, unmatched map[string]struct{}, opt *dispatchOpt) {
+func reportUnmatchedVariables(cmd converter.Command, buildArgs []converter.KeyValuePairOptional, env shell.EnvGetter, unmatched map[string]struct{}, opt *dispatchOpt) {
 	if len(unmatched) == 0 {
 		return
 	}
@@ -1746,7 +1376,7 @@ func (v *instructionTracker) MarkUsed(loc []parser.Range) {
 	v.IsSet = true
 }
 
-func validateUsedOnce(c instructions.Command, loc *instructionTracker, lint *linter.Linter) {
+func validateUsedOnce(c converter.Command, loc *instructionTracker, lint *linter.Linter) {
 	if loc.IsSet {
 		msg := linter.RuleMultipleInstructionsDisallowed.Format(c.Name())
 		// Report the location of the previous invocation because it is the one
@@ -1813,7 +1443,7 @@ func validateNoSecretKey(instruction, key string, location []parser.Range, lint 
 	}
 }
 
-func validateBaseImagesWithDefaultArgs(stages []instructions.Adder, shlex *shell.Lex, env *llb.EnvList, argCmds []instructions.ArgCommand, lint *linter.Linter) {
+func validateBaseImagesWithDefaultArgs(stages []converter.Adder, shlex *shell.Lex, env *llb.EnvList, argCmds []converter.ArgCommand, lint *linter.Linter) {
 	// Build the arguments as if no build options were given
 	// and using only defaults.
 	args, _, err := buildMetaArgs(env, shlex, argCmds, nil)
@@ -1826,7 +1456,7 @@ func validateBaseImagesWithDefaultArgs(stages []instructions.Adder, shlex *shell
 
 	for _, st := range stages {
 		switch st := st.(type) {
-		case *instructions.ImportCommand:
+		case *converter.ImportCommand:
 			vv := strings.SplitN(st.BaseName, ":", 2)
 			baseName := st.BaseName
 			supported := false
@@ -1846,7 +1476,7 @@ func validateBaseImagesWithDefaultArgs(stages []instructions.Adder, shlex *shell
 					lint.Run(&linter.RuleInvalidDefaultArgInFrom, st.Location(), msg)
 				}
 			}
-		case *instructions.Stage:
+		case *converter.Stage:
 			nameMatch, err := shlex.ProcessWordWithMatches(st.BaseName, args)
 			if err != nil {
 				return
@@ -1861,7 +1491,7 @@ func validateBaseImagesWithDefaultArgs(stages []instructions.Adder, shlex *shell
 	}
 }
 
-func buildMetaArgs(args *llb.EnvList, shlex *shell.Lex, argCommands []instructions.ArgCommand, buildArgs map[string]string) (*llb.EnvList, map[string]argInfo, error) {
+func buildMetaArgs(args *llb.EnvList, shlex *shell.Lex, argCommands []converter.ArgCommand, buildArgs map[string]string) (*llb.EnvList, map[string]argInfo, error) {
 	allArgs := make(map[string]argInfo)
 
 	for _, cmd := range argCommands {

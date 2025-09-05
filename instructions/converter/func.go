@@ -2,15 +2,14 @@ package converter
 
 import (
 	"fmt"
-	"regexp"
 	"strings"
 )
 
 type Function struct {
 	FuncName string
 	Commands []Command
-	Args []KeyValuePairOptional
-	Action *string
+	Args     []KeyValuePairOptional
+	Action   *string
 	withNameAndCode
 }
 
@@ -42,24 +41,37 @@ func parseFunc(req parseRequest) (fun *Function, err error) {
 		return nil, err
 	}
 
-	for k, v := range req.flags.flags {
-		flagKeyValue := KeyValuePairOptional{Key: k}
-		if v != nil {
-			flagKeyValue.Value = &v.Value
+	for _, arg := range req.flags.Args {
+		if arg == "--" {
+			break
 		}
-		fun.AddArg(flagKeyValue)
+
+		if !strings.HasPrefix(arg, "--") {
+			continue
+		}
+
+		key, value, ok := strings.Cut(arg, "=")
+		key = strings.TrimPrefix(key, "--")
+		if ok {
+			fun.AddArg(KeyValuePairOptional{
+				Key:   key,
+				Value: &value,
+			})
+		} else {
+			True := "true"
+			fun.AddArg(KeyValuePairOptional{
+				Key:   key,
+				Value: &True,
+			})
+		}
 	}
 	return fun, nil
 }
 
 func parseEndFunc(req parseRequest) (*EndFunction, error) {
 	if len(req.args) > 0 {
-		original := regexp.MustCompile(`(?i)^\s*ENDFUNC\s*`).ReplaceAllString(req.original, "")
-		for _, heredoc := range req.heredocs {
-			original += "\n" + heredoc.Content + heredoc.Name
-		}
-		if len(original) > 0 {
-			return nil, &UnknownInstructionError{Instruction: original, Line: req.location[0].Start.Line}
+		if s := strings.TrimSpace(strings.Join(req.args, " ")); s != "" {
+			return nil, &UnknownInstructionError{Instruction: s, Line: req.location[0].Start.Line}
 		}
 	}
 	return &EndFunction{withNameAndCode: newWithNameAndCode(req)}, nil

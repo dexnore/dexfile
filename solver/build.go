@@ -21,7 +21,6 @@ import (
 	"github.com/pkg/errors"
 )
 
-// TODO: fix error here
 func Build(ctx context.Context, c dexfile.Client, src dexfile.Source, dex2llb dexfile.Dexfile2LLB, convertOpt dexfile.ConvertOpt) (res *gwclient.Result, err error) {
 	defer func() {
 		var el *parser.LocationError

@@ -21,19 +21,20 @@ const (
 	WORKDIR     = "workdir"
 
 	// Dexfile specific
-	ENDFOR = "endfor"
-	FOR    = "for"
-	IF     = "if"
-	ELSE   = "else"
-	ENDIF  = "endif"
-	WHILE  = "while"
-	IMPORT = "import"
-	EXEC   = "exec"
-	CTR    = "ctr"
-	ENDCTR = "endctr"
-	PROC   = "proc"
-	FUNC = "func"
+	ENDFOR  = "endfor"
+	FOR     = "for"
+	IF      = "if"
+	ELSE    = "else"
+	ENDIF   = "endif"
+	WHILE   = "while"
+	IMPORT  = "import"
+	EXEC    = "exec"
+	CTR     = "ctr"
+	ENDCTR  = "endctr"
+	PROC    = "proc"
+	FUNC    = "func"
 	ENDFUNC = "endfunc"
+	BUILD   = "build"
 )
 
 var Instructions = map[string]struct{}{
@@ -56,16 +57,17 @@ var Instructions = map[string]struct{}{
 	VOLUME:      {},
 	WORKDIR:     {},
 	// Dexfile specific
-	IMPORT: {},
-	IF:     {},
-	ELSE:   {},
-	ENDIF:  {},
-	EXEC:   {},
-	CTR:    {},
-	ENDCTR: {},
-	PROC:   {},
-	FUNC:   {},
-	ENDFUNC:{},
-	FOR: 	{},
-	ENDFOR: {},
+	IMPORT:  {},
+	IF:      {},
+	ELSE:    {},
+	ENDIF:   {},
+	EXEC:    {},
+	CTR:     {},
+	ENDCTR:  {},
+	PROC:    {},
+	FUNC:    {},
+	ENDFUNC: {},
+	FOR:     {},
+	ENDFOR:  {},
+	BUILD:   {},
 }
