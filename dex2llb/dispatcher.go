@@ -689,6 +689,7 @@ func dispatchShell(d *dispatchState, c *converter.ShellCommand, _ ...llb.Constra
 
 func dispatchArg(d *dispatchState, c *converter.ArgCommand, opt *dispatchOpt, _ ...llb.ConstraintsOpt) error {
 	commitStrs := make([]string, 0, len(c.Args))
+	usedBuildArgs := make(map[string]struct{}, len(opt.buildArgValues))
 	for _, arg := range c.Args {
 		validateNoSecretKey("ARG", arg.Key, c.Location(), opt.lint)
 		_, hasValue := opt.buildArgValues[arg.Key]
@@ -703,15 +704,14 @@ func dispatchArg(d *dispatchState, c *converter.ArgCommand, opt *dispatchOpt, _ 
 			}
 		}
 
-		if hasValue {
+		if _, ok := usedBuildArgs[arg.Key]; !ok && hasValue {
 			v := opt.buildArgValues[arg.Key]
 			arg.Value = &v
+			usedBuildArgs[arg.Key] = struct{}{}
+			delete(opt.buildArgValues, arg.Key)
 		} else if hasDefault {
-			shlex := *opt.shlex
-			shlex.RawEscapes = true
-			shlex.SkipUnsetEnv = true
 			env := getEnv(d.state)
-			v, unmatched, err := shlex.ProcessWord(*arg.Value, env)
+			v, unmatched, err := opt.shlex.ProcessWord(*arg.Value, env)
 			reportUnmatchedVariables(c, d.buildArgs, env, unmatched, opt)
 			if err != nil {
 				return err

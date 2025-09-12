@@ -19,32 +19,8 @@ import (
 type Dispatcher func(d *dispatchState, cmd command, opt dispatchOpt) error
 
 func dispatch(ctx context.Context, d *dispatchState, cmd command, opt dispatchOpt, copts ...llb.ConstraintsOpt) (breakCmd bool, err error) {
-	d.cmdIsOnBuild = cmd.isOnBuild
-	// ARG command value could be ignored, so defer handling the expansion error
-	_, isArg := cmd.Command.(*converter.ArgCommand)
-	if ex, ok := cmd.Command.(converter.SupportsSingleWordExpansion); ok && !isArg {
-		err := ex.Expand(func(word string) (string, error) {
-			env := getEnv(d.state)
-			newword, unmatched, err := opt.shlex.ProcessWord(word, env)
-			reportUnmatchedVariables(cmd, d.buildArgs, env, unmatched, &opt)
-			return newword, err
-		})
-		if err != nil {
-			return false, err
-		}
-	}
-	if ex, ok := cmd.Command.(converter.SupportsSingleWordExpansionRaw); ok {
-		err := ex.ExpandRaw(func(word string) (string, error) {
-			lex := shell.NewLex('\\')
-			lex.SkipProcessQuotes = true
-			env := getEnv(d.state)
-			newword, unmatched, err := lex.ProcessWord(word, env)
-			reportUnmatchedVariables(cmd, d.buildArgs, env, unmatched, &opt)
-			return newword, err
-		})
-		if err != nil {
-			return false, err
-		}
+	if err := dispatcherExpand(d, cmd, opt); err != nil {
+		return false, err
 	}
 
 	switch c := cmd.Command.(type) {
@@ -218,4 +194,36 @@ func dispatch(ctx context.Context, d *dispatchState, cmd command, opt dispatchOp
 	default:
 		return false, fmt.Errorf("unknown dispatcher command: %w", &converter.UnknownInstructionError{Instruction: c.Name(), Line: c.Location()[0].Start.Line})
 	}
+}
+
+func dispatcherExpand(d *dispatchState, cmd command, opt dispatchOpt) error {
+	d.cmdIsOnBuild = cmd.isOnBuild
+	// ARG command value could be ignored, so defer handling the expansion error
+	_, isArg := cmd.Command.(*converter.ArgCommand)
+	if ex, ok := cmd.Command.(converter.SupportsSingleWordExpansion); ok && !isArg {
+		err := ex.Expand(func(word string) (string, error) {
+			env := getEnv(d.state)
+			newword, unmatched, err := opt.shlex.ProcessWord(word, env)
+			reportUnmatchedVariables(cmd, d.buildArgs, env, unmatched, &opt)
+			return newword, err
+		})
+		if err != nil {
+			return err
+		}
+	}
+	if ex, ok := cmd.Command.(converter.SupportsSingleWordExpansionRaw); ok {
+		err := ex.ExpandRaw(func(word string) (string, error) {
+			lex := shell.NewLex('\\')
+			lex.SkipProcessQuotes = true
+			env := getEnv(d.state)
+			newword, unmatched, err := lex.ProcessWord(word, env)
+			reportUnmatchedVariables(cmd, d.buildArgs, env, unmatched, &opt)
+			return newword, err
+		})
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
