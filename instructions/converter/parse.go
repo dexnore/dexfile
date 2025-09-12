@@ -190,6 +190,32 @@ func Parse(ast *parser.Node, lint *linter.Linter) (stages []Adder, metaCmds []Co
 					if parseScopedErr != nil {
 						return nil, nil, parseScopedErr
 					}
+					metaCmds = append(metaCmds, condBlock)
+					i += consumedNodes
+				case *CommandFor:
+					blockNode := &parser.Node{Children: ast.Children[i:]}
+					forBlock, consumedNodes, parseScopedErr := ParseLoop(blockNode, lint)
+					if parseScopedErr != nil {
+						return nil, nil, parseScopedErr
+					}
+
+					metaCmds = append(metaCmds, forBlock)
+					i += consumedNodes
+				case *CommandConatainer:
+					blockNode := &parser.Node{Children: ast.Children[i:]}
+					ctrBlock, consumedNodes, parseScopedErr := ParseContainer(blockNode, lint)
+					if parseScopedErr != nil {
+						return nil, nil, parseScopedErr
+					}
+
+					metaCmds = append(metaCmds, ctrBlock)
+					i += consumedNodes
+				case *Function:
+					blockNode := &parser.Node{Children: ast.Children[i:]}
+					funcBlock, consumedNodes, parseScopedErr := ParseFunction(blockNode, lint)
+					if parseScopedErr != nil {
+						return nil, nil, parseScopedErr
+					}
 
 					metaCmds = append(metaCmds, funcBlock)
 					i += consumedNodes

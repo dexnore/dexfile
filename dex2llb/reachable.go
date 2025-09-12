@@ -30,18 +30,18 @@ import (
 type namedContext func(name string, copt dexfile.ContextOpt) (dexfile.NamedContext, error)
 type stageResolver struct {
 	allDispatchStates *dispatchStates
-	namedContext      namedContext
-	platformOpt       *platformOpt
-	metaResolver      llb.ImageMetaResolver
-	lint              *linter.Linter
-	opt               dexfile.ConvertOpt
+	namedContext namedContext
+	platformOpt *platformOpt
+	metaResolver llb.ImageMetaResolver
+	lint *linter.Linter
+	opt dexfile.ConvertOpt
 }
 
 type rechableStageResolver interface {
 	resolve(ctx context.Context, all []*dispatchState, target *dispatchState) (map[*dispatchState]struct{}, error)
 }
 
-func (s *stageResolver) resolve(ctx context.Context, all []*dispatchState, target *dispatchState) (map[*dispatchState]struct{}, error) {
+func (s *stageResolver) resolve (ctx context.Context, all []*dispatchState, target *dispatchState) (map[*dispatchState]struct{}, error) {
 	allReachable := allReachableStages(target)
 	eg, ctx := errgroup.WithContext(ctx)
 	for i, d := range all {
@@ -329,7 +329,7 @@ func resolveReachableStage(ctx context.Context, allDispatchStates *dispatchState
 		newDeps := false
 		for d := range allReachable {
 			d.init()
-
+			
 			onbuilds := slices.Clone(d.image.Config.OnBuild)
 			if d.base != nil && !d.onBuildInit {
 				for _, cmd := range d.base.commands {
