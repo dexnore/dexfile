@@ -7,6 +7,6 @@ import (
 	"github.com/moby/buildkit/client/llb"
 )
 
-func dispatchRunSecurity(_ *instructions.RunCommand) (llb.RunOption, error) {
+func dispatchRunSecurity(_ instructions.WithExcludeData) (llb.RunOption, error) {
 	return nil, nil
 }

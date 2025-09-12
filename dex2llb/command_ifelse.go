@@ -211,11 +211,11 @@ func handleIfElse(ctx context.Context, d *dispatchState, cmd converter.Condition
 	}()
 
 	var (
-		i int = 0
-		block converter.Command = cmd.ConditionIF
-		ifElseID = identity.NewID()
-		localCopts = []llb.ConstraintsOpt{
-			llb.WithCaps(*opt.llbCaps), 
+		i          int               = 0
+		block      converter.Command = cmd.ConditionIF
+		ifElseID                     = identity.NewID()
+		localCopts                   = []llb.ConstraintsOpt{
+			llb.WithCaps(*opt.llbCaps),
 			llb.ProgressGroup(ifElseID, "IF/ELSE ==> "+cmd.String(), false),
 		}
 		LocalCopts = append(copts, localCopts...)
@@ -281,7 +281,7 @@ forloop:
 			}
 			err = nil
 		case *converter.CommandProcess:
-			err, ok := handleProc(ctx, ds, cond, dOpt)
+			ok, err := handleProc(ctx, ds, cond, dOpt)
 			if !ok {
 				if err == nil {
 					err = fmt.Errorf("unable to start [PROC]")
@@ -421,7 +421,7 @@ forloop:
 		continue forloop
 	}
 
-	if errs == nil || conds[len(conds) - 1] != nil { // NOTE: if no 'else' condition => skip error
+	if errs == nil || conds[len(conds)-1] != nil { // NOTE: if no 'else' condition => skip error
 		return false, nil
 	}
 
@@ -429,8 +429,8 @@ forloop:
 }
 
 func stripNewlineSuffix(s string) []string {
-    if strings.HasSuffix(s, "\n") {
-        return strings.Split(s, "\n")
-    }
-    return []string{s}
+	if strings.HasSuffix(s, "\n") {
+		return strings.Split(s, "\n")
+	}
+	return []string{s}
 }

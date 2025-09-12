@@ -24,7 +24,7 @@ const (
 
 func isValidRegexAction(action regexAction) bool {
 	switch action {
-	case ActionRegexSplit,ActionRegexMatch:
+	case ActionRegexSplit, ActionRegexMatch:
 		return true
 	default:
 		return false
@@ -32,7 +32,7 @@ func isValidRegexAction(action regexAction) bool {
 }
 
 type Regex struct {
-	Regex string
+	Regex  string
 	Action regexAction
 }
 

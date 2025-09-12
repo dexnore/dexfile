@@ -68,6 +68,10 @@ func allMountTypes() []string {
 }
 
 func runMountPreHook(cmd *RunCommand, req parseRequest) error {
+	return setPreMountState(&cmd.withExternalData, req)
+}
+
+func setPreMountState(cmd *withExternalData, req parseRequest) error {
 	st := &mountState{}
 	st.flag = req.flags.AddStrings("mount")
 	cmd.setExternalValue(mountsKey, st)
@@ -75,10 +79,10 @@ func runMountPreHook(cmd *RunCommand, req parseRequest) error {
 }
 
 func runMountPostHook(cmd *RunCommand, req parseRequest) error {
-	return setMountState(cmd, nil)
+	return setMountState(&cmd.withExternalData, nil)
 }
 
-func setMountState(cmd *RunCommand, expander SingleWordExpander) error {
+func setMountState(cmd *withExternalData, expander SingleWordExpander) error {
 	st := getMountState(cmd)
 	if st == nil {
 		return errors.Errorf("no mount state")
@@ -95,7 +99,7 @@ func setMountState(cmd *RunCommand, expander SingleWordExpander) error {
 	return nil
 }
 
-func getMountState(cmd *RunCommand) *mountState {
+func getMountState(cmd WithExcludeData) *mountState {
 	v := cmd.getExternalValue(mountsKey)
 	if v == nil {
 		return nil
@@ -103,7 +107,7 @@ func getMountState(cmd *RunCommand) *mountState {
 	return v.(*mountState)
 }
 
-func GetMounts(cmd *RunCommand) []*Mount {
+func GetMounts(cmd WithExcludeData) []*Mount {
 	return getMountState(cmd).mounts
 }
 

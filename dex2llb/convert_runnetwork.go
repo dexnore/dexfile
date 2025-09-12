@@ -8,7 +8,7 @@ import (
 	"github.com/moby/buildkit/solver/pb"
 )
 
-func dispatchRunNetwork(c *instructions.RunCommand) (llb.RunOption, error) {
+func dispatchRunNetwork(c instructions.WithExcludeData) (llb.RunOption, error) {
 	network := instructions.GetNetwork(c)
 
 	switch network {

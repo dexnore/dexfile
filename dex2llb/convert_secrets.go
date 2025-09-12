@@ -73,7 +73,7 @@ func dispatchSecret(d *dispatchState, m *instructions.Mount, loc []parser.Range)
 
 // withSecretEnvMask returns an EnvGetter that masks secret values in the environment.
 // This is not needed to hide actual secret values but to make it clear that the value is loaded from a secret.
-func withSecretEnvMask(c *instructions.RunCommand, env shell.EnvGetter) shell.EnvGetter {
+func withSecretEnvMask(c instructions.WithExcludeData, env shell.EnvGetter) shell.EnvGetter {
 	ev := &llb.EnvList{}
 	set := false
 	mounts := instructions.GetMounts(c)

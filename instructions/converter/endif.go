@@ -15,5 +15,5 @@ func parseEndIf(req parseRequest) (*EndIf, error) {
 		}
 	}
 
-	return &EndIf{ withNameAndCode: newWithNameAndCode(req) }, nil
+	return &EndIf{withNameAndCode: newWithNameAndCode(req)}, nil
 }

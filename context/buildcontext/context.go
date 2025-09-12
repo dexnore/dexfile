@@ -140,12 +140,3 @@ func scopeToSubDir(c *llb.State, dir string) *llb.State {
 	}))
 	return &bc
 }
-
-func contextToSubDir(c *llb.State, opts map[string]string) *llb.State {
-	if c != nil {
-		if sub, ok := opts[KeyContextSubDir]; ok {
-			return scopeToSubDir(c, sub)
-		}
-	}
-	return c
-}

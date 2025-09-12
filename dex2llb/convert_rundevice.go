@@ -7,7 +7,7 @@ import (
 	"github.com/moby/buildkit/client/llb"
 )
 
-func dispatchRunDevices(c *instructions.RunCommand) ([]llb.RunOption, error) {
+func dispatchRunDevices(c instructions.WithExcludeData) ([]llb.RunOption, error) {
 	var out []llb.RunOption
 	for _, device := range instructions.GetDevices(c) {
 		deviceOpts := []llb.CDIDeviceOption{

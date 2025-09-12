@@ -31,6 +31,10 @@ func init() {
 }
 
 func runNetworkPreHook(cmd *RunCommand, req parseRequest) error {
+	return runPreNetworkHook(&cmd.withExternalData, req)
+}
+
+func runPreNetworkHook(cmd *withExternalData, req parseRequest) error {
 	st := &networkState{}
 	st.flag = req.flags.AddString("network", NetworkDefault)
 	cmd.setExternalValue(networkKey, st)
@@ -38,6 +42,10 @@ func runNetworkPreHook(cmd *RunCommand, req parseRequest) error {
 }
 
 func runNetworkPostHook(cmd *RunCommand, req parseRequest) error {
+	return runPostNetworkHook(&cmd.withExternalData, req)
+}
+
+func runPostNetworkHook(cmd *withExternalData, req parseRequest) error {
 	st := cmd.getExternalValue(networkKey).(*networkState)
 	if st == nil {
 		return errors.Errorf("no network state")
@@ -53,7 +61,7 @@ func runNetworkPostHook(cmd *RunCommand, req parseRequest) error {
 	return nil
 }
 
-func GetNetwork(cmd *RunCommand) NetworkMode {
+func GetNetwork(cmd WithExcludeData) NetworkMode {
 	return cmd.getExternalValue(networkKey).(*networkState).networkMode
 }
 

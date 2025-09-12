@@ -201,7 +201,7 @@ func Parse(ast *parser.Node, lint *linter.Linter) (stages []Adder, metaCmds []Co
 					metaCmds = append(metaCmds, cmd)
 				case *ConditionElse, *EndContainer, *EndFunction, *EndIf:
 					err = fmt.Errorf("unexpected %+v at top level", cmd)
-					if cmd, ok := cmd.(interface { Location() []parser.Range }); ok {
+					if cmd, ok := cmd.(interface{ Location() []parser.Range }); ok {
 						err = parser.WithLocation(err, cmd.Location())
 					}
 					return nil, nil, err
@@ -334,9 +334,9 @@ func Parse(ast *parser.Node, lint *linter.Linter) (stages []Adder, metaCmds []Co
 func ParseConditional(ast *parser.Node, lint *linter.Linter) (cond *ConditionIfElse, i int, err error) {
 	cond = &ConditionIfElse{withNameAndCode: newWithNameAndCode(newParseRequestFromNode(ast.Children[0]))}
 	var (
-		currentCond interface { 
-			EndBlock() error 
-			AddCommand(cmd Command) error 
+		currentCond interface {
+			EndBlock() error
+			AddCommand(cmd Command) error
 		}
 	)
 
@@ -463,7 +463,7 @@ func ParseConditional(ast *parser.Node, lint *linter.Linter) (cond *ConditionIfE
 			}
 			if stringer, ok := c.(fmt.Stringer); ok {
 				for _, str := range strings.Split(stringer.String(), "\n") {
-					cond.code += fmt.Sprintf("\n\t%s", str) // TODO: add for `FUNC`, `CTR`, `FOR` etc..., instructions too 
+					cond.code += fmt.Sprintf("\n\t%s", str)
 				}
 			} else {
 				cond.code += fmt.Sprintf("\n\t%s %s", c.Name(), "<unknown command>")
@@ -572,11 +572,11 @@ func ParseLoop(ast *parser.Node, lint *linter.Linter) (forcmd *CommandFor, i int
 		case Command:
 			if stringer, ok := c.(fmt.Stringer); ok {
 				for _, str := range strings.Split(stringer.String(), "\n") {
-					forcmd.code += fmt.Sprintf("\n\t%s", str) // TODO: add for `FUNC`, `CTR`, `FOR` etc..., instructions too 
+					forcmd.code += fmt.Sprintf("\n\t%s", str)
 				}
 			} else {
 				forcmd.code += fmt.Sprintf("\n\t%s %s", c.Name(), "<unknown command>")
-			} 
+			}
 			forcmd.AddCommand(c)
 		default:
 			return nil, i, parser.WithLocation(errors.Errorf("%T is not a recognized instruction type for 'for' blocks", cmd), n.Location())
@@ -684,7 +684,7 @@ func ParseContainer(ast *parser.Node, lint *linter.Linter) (ctrcmd *CommandConat
 		case Command:
 			if stringer, ok := c.(fmt.Stringer); ok {
 				for _, str := range strings.Split(stringer.String(), "\n") {
-					ctrcmd.code += fmt.Sprintf("\n\t%s", str) // TODO: add for `FUNC`, `CTR`, `FOR` etc..., instructions too 
+					ctrcmd.code += fmt.Sprintf("\n\t%s", str)
 				}
 			} else {
 				ctrcmd.code += fmt.Sprintf("\n\t%s %s", c.Name(), "<unknown command>")
@@ -793,7 +793,7 @@ func ParseFunction(ast *parser.Node, lint *linter.Linter) (fun *Function, i int,
 		case Command:
 			if stringer, ok := c.(fmt.Stringer); ok {
 				for _, str := range strings.Split(stringer.String(), "\n") {
-					fun.code += fmt.Sprintf("\n\t%s", str) // TODO: add for `FUNC`, `CTR`, `FOR` etc..., instructions too 
+					fun.code += fmt.Sprintf("\n\t%s", str)
 				}
 			} else {
 				fun.code += fmt.Sprintf("\n\t%s %s", c.Name(), "<unknown command>")

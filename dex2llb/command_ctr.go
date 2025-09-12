@@ -47,12 +47,53 @@ func dispatchCtr(ctx context.Context, d *dispatchState, ctr converter.CommandCon
 		llb.ProgressGroup(ctrID, ctr.String(), false),
 	}
 	LocalCopts := append(copts, localCopts...)
-	// cwd, err := st.GetDir(ctx)
-	// if err != nil || cwd == "" {
-	// 	st = st.Dir("/")
-	// }
 
-	def, err := st.Marshal(ctx, append(LocalCopts, llb.WithCustomNamef("creating custom container [%s]", ctr.From))...)
+	dClone := d.Clone()
+	dClone.state = st
+	optClone, err := opt.Clone()
+	if err != nil {
+		return false, err
+	}
+
+	c, err := toCommand(ctr, opt.allDispatchStates)
+	if err != nil {
+		return false, err
+	}
+
+	_, err = dispatchMetaExecOp(dClone, &ctr, ctr.String(), []string{"fake", "cmd"}, optClone.proxyEnv, c.sources, optClone, make([]llb.RunOption, 0), LocalCopts...)
+	if err != nil {
+		return false, err
+	}
+
+	def, err := dClone.state.Marshal(ctx, append(LocalCopts, llb.WithCustomNamef("creating custom container [%s]", ctr.From))...)
+	if err != nil {
+		return false, err
+	}
+
+	var execop *execOp
+	for i := len(def.Def) - 1; i >= 0; i-- {
+		def := def.Def[i]
+		var pop pb.Op
+		if err := pop.UnmarshalVT(def); err != nil {
+			return false, err
+		}
+		if execop = solveOp(&pop); execop != nil {
+			break
+		}
+	}
+
+	if execop == nil {
+		return false, parser.WithLocation(errors.New("unable to create container"), ctr.Location())
+	}
+
+	gwctr, err := createContainer(ctx, opt.solver.Client(), execop, ctr.Result.Ref)
+	if err != nil {
+		return false, err
+	}
+
+	defer gwctr.Release(ctx)
+
+	def, err = st.Marshal(ctx, append(LocalCopts, llb.WithCustomNamef("retriving container state [%s]", ctr.From))...)
 	if err != nil {
 		return false, err
 	}
@@ -66,8 +107,9 @@ func dispatchCtr(ctx context.Context, d *dispatchState, ctr converter.CommandCon
 		return false, parser.WithLocation(err, ctr.Location())
 	}
 
+	ctr.Container = gwctr
 	ctr.Result = res
-	ctr.State = &st
+	ctr.State = dClone.state
 
 	for _, cmd := range ctr.Commands {
 		switch cmd := cmd.(type) {
@@ -78,7 +120,7 @@ func dispatchCtr(ctx context.Context, d *dispatchState, ctr converter.CommandCon
 			if err != nil {
 				return false, err
 			}
-			if err, ok := handleProc(ctx, dClone, cmd, optClone); err != nil {
+			if ok, err := handleProc(ctx, dClone, cmd, optClone); err != nil {
 				if !ok {
 					return false, parser.WithLocation(fmt.Errorf("failed to start [CTR] process: %s\n%w", strings.Join(cmd.RUN.CmdLine, " "), err), cmd.Location())
 				}
@@ -90,10 +132,42 @@ func dispatchCtr(ctx context.Context, d *dispatchState, ctr converter.CommandCon
 		case *converter.ConditionIfElse:
 			conds := []converter.Command{cmd.ConditionIF.Condition}
 			for _, elseCond := range cmd.ConditionElse {
+				for _, c := range elseCond.Commands {
+					if c, ok := c.(*converter.CommandProcess); ok {
+						c.InContainer = *ctr.Clone()
+					}
+				}
 				conds = append(conds, elseCond.Condition)
 			}
 
 			for _, c := range conds {
+				if c, ok := c.(*converter.CommandProcess); ok {
+					c.InContainer = *ctr.Clone()
+				}
+			}
+
+			for _, ifcmd := range cmd.ConditionIF.Commands {
+				if c, ok := ifcmd.(*converter.CommandProcess); ok {
+					c.InContainer = *ctr.Clone()
+				}
+			}
+
+			dc, err := toCommand(cmd, opt.allDispatchStates)
+			if err != nil {
+				return false, parser.WithLocation(err, cmd.Location())
+			}
+			if breakCmd, err = dispatch(ctx, d, dc, opt, LocalCopts...); err != nil {
+				return breakCmd, parser.WithLocation(err, dc.Location())
+			}
+			if breakCmd {
+				return true, nil
+			}
+		case *converter.CommandFor:
+			if c, ok := cmd.EXEC.(*converter.CommandProcess); ok {
+				c.InContainer = *ctr.Clone()
+			}
+
+			for _, c := range cmd.Commands {
 				if c, ok := c.(*converter.CommandProcess); ok {
 					c.InContainer = *ctr.Clone()
 				}
@@ -107,6 +181,12 @@ func dispatchCtr(ctx context.Context, d *dispatchState, ctr converter.CommandCon
 			}
 			if breakCmd {
 				return true, nil
+			}
+		case *converter.Function:
+			for _, c := range cmd.Commands {
+				if c, ok := c.(*converter.CommandProcess); ok {
+					c.InContainer = *ctr.Clone()
+				}
 			}
 		default:
 			dc, err := toCommand(cmd, opt.allDispatchStates)
@@ -125,17 +205,17 @@ func dispatchCtr(ctx context.Context, d *dispatchState, ctr converter.CommandCon
 	return false, nil
 }
 
-func handleProc(ctx context.Context, d *dispatchState, cmd *converter.CommandProcess, opt dispatchOpt) (err error, false bool) {
+func handleProc(ctx context.Context, d *dispatchState, cmd *converter.CommandProcess, opt dispatchOpt) (false bool, err error) {
 	ctr := cmd.InContainer
 	if cmd.From != "" {
 		fromCtr, ok := cmd.FindContainer(cmd.From)
 		if !ok {
-			return parser.WithLocation(fmt.Errorf("no container found with name: %s", cmd.From), cmd.RUN.Location()), false
+			return false, parser.WithLocation(fmt.Errorf("no container found with name: %s", cmd.From), cmd.RUN.Location())
 		}
 		ctr = *fromCtr.Clone()
 	}
-	if ctr.Result == nil || ctr.State == nil {
-		return fmt.Errorf("[PROC] command not supported outside [CTR] command"), false
+	if ctr.Result == nil || ctr.Container == nil {
+		return false, fmt.Errorf("[PROC] command not supported outside [CTR] command")
 	}
 
 	var (
@@ -144,36 +224,34 @@ func handleProc(ctx context.Context, d *dispatchState, cmd *converter.CommandPro
 	)
 
 	st := d.state
-	d.state = *ctr.State
+	d.state = ctr.State
 	defer func() {
-		*ctr.State = llb.NewState(d.state.Output())
+		ctr.State = d.state
 		d.state = st.
 			WithValue(ARG_STDOUT, stripNewlineSuffix(stdout.String())[0]).
 			WithValue(ARG_STDERR, stripNewlineSuffix(stderr.String())[0])
 	}()
 	err = cmd.RUN.Expand(func(word string) (string, error) {
-		shlex := opt.shlex
-		shlex.SkipUnsetEnv = true
 		env := getEnv(d.state)
-		newword, unmatched, err := shlex.ProcessWord(word, env)
+		newword, unmatched, err := opt.shlex.ProcessWord(word, env)
 		reportUnmatchedVariables(cmd, d.buildArgs, env, unmatched, &opt)
 		return newword, err
 	})
 	if err != nil {
-		return err, false
+		return false, err
 	}
 	dc, err := toCommand(cmd.RUN, opt.allDispatchStates)
 	if err != nil {
-		return err, false
+		return false, err
 	}
 	err = dispatchRun(d, &cmd.RUN, opt.proxyEnv, dc.sources, opt, llb.WithCustomNamef("%s", cmd.String()))
 	if err != nil {
-		return err, false
+		return false, err
 	}
 
 	def, err := d.state.Marshal(ctx)
 	if err != nil {
-		return err, false
+		return false, err
 	}
 
 	var execop *execOp
@@ -181,7 +259,7 @@ func handleProc(ctx context.Context, d *dispatchState, cmd *converter.CommandPro
 		def := def.Def[i]
 		var pop pb.Op
 		if err := pop.UnmarshalVT(def); err != nil {
-			return err, false
+			return false, err
 		}
 		if execop = solveOp(&pop); execop != nil {
 			break
@@ -189,23 +267,16 @@ func handleProc(ctx context.Context, d *dispatchState, cmd *converter.CommandPro
 	}
 
 	if execop == nil {
-		return parser.WithLocation(errors.New("no [PROC] statement found"), cmd.RUN.Location()), false
+		return false, parser.WithLocation(errors.New("no [PROC] statement found"), cmd.RUN.Location())
 	}
-
-	gwctr, err := createContainer(ctx, opt.solver.Client(), execop, ctr.Result.Ref)
-	if err != nil {
-		return err, false
-	}
-
-	defer gwctr.Release(ctx)
 
 	var retErr bool
-	retErr, _, err = startProcess(ctx, gwctr, cmd.TimeOut, *execop, func() (bool, error) {
+	retErr, _, err = startProcess(ctx, ctr.Container, cmd.TimeOut, *execop, func() (bool, error) {
 		return false, nil
 	}, &nopCloser{stdout}, &nopCloser{stderr})
 	if retErr && err != nil {
-		return parser.WithLocation(fmt.Errorf("%s: %w", stderr.String(), err), cmd.RUN.Location()), true
+		return true, parser.WithLocation(fmt.Errorf("%s: %w", stderr.String(), err), cmd.RUN.Location())
 	}
 
-	return err, true
+	return true, err
 }

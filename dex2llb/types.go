@@ -156,34 +156,34 @@ func (ds dispatchState) Clone() *dispatchState {
 }
 
 type dispatchOpt struct {
-	allDispatchStates *dispatchStates
-	functions         map[string]*instructions.Function
-	globalArgs        shell.EnvGetter
-	buildArgValues    map[string]string
-	shlex             *shell.Lex
-	buildContext      llb.State
-	proxyEnv          *llb.ProxyEnv
-	cacheIDNamespace  string
-	targetPlatform    ocispecs.Platform
-	buildPlatforms    []ocispecs.Platform
-	extraHosts        []llb.HostIP
-	shmSize           int64
-	ulimit            []*pb.Ulimit
-	devices           []*pb.CDIDevice
-	cgroupParent      string
-	llbCaps           *apicaps.CapSet
-	sourceMap         *llb.SourceMap
-	lint              *linter.Linter
-	dexnoreMatcher    *patternmatcher.PatternMatcher
-	solver            dexfile.Solver
-	buildClient       dexfile.BuildClient
-	mainContext       *llb.State
-	stageResolver     *stageResolver
-	convertOpt		  dexfile.ConvertOpt
+	allDispatchStates         *dispatchStates
+	functions                 map[string]*instructions.Function
+	globalArgs                shell.EnvGetter
+	buildArgValues            map[string]string
+	shlex                     *shell.Lex
+	buildContext              llb.State
+	proxyEnv                  *llb.ProxyEnv
+	cacheIDNamespace          string
+	targetPlatform            ocispecs.Platform
+	buildPlatforms            []ocispecs.Platform
+	extraHosts                []llb.HostIP
+	shmSize                   int64
+	ulimit                    []*pb.Ulimit
+	devices                   []*pb.CDIDevice
+	cgroupParent              string
+	llbCaps                   *apicaps.CapSet
+	sourceMap                 *llb.SourceMap
+	lint                      *linter.Linter
+	dexnoreMatcher            *patternmatcher.PatternMatcher
+	solver                    dexfile.Solver
+	buildClient               dexfile.BuildClient
+	mainContext               *llb.State
+	stageResolver             *stageResolver
+	convertOpt                dexfile.ConvertOpt
 	mutableBuildContextOutput *mutableDexfileOutput
 }
 
-func (o dispatchOpt) Clone() (dispatchOpt, error){
+func (o dispatchOpt) Clone() (dispatchOpt, error) {
 	var shlex *shell.Lex
 	if o.shlex != nil {
 		s := *o.shlex
@@ -225,30 +225,30 @@ func (o dispatchOpt) Clone() (dispatchOpt, error){
 	}
 
 	return dispatchOpt{
-		lint:              o.lint,
-		buildArgValues:    maps.Clone(o.buildArgValues),
-		globalArgs:        o.globalArgs,
-		shlex:             shlex,
-		targetPlatform:    o.targetPlatform,
-		sourceMap:         sourcemap,
-		llbCaps:           o.llbCaps,
-		dexnoreMatcher:    o.dexnoreMatcher,
-		ulimit:            slices.Clone(o.ulimit),
-		devices:           slices.Clone(o.devices),
-		proxyEnv:          o.proxyEnv,
-		extraHosts:        slices.Clone(o.extraHosts),
-		shmSize:           o.shmSize,
-		cgroupParent:      o.cgroupParent,
-		buildContext:      o.buildContext,
-		cacheIDNamespace:  o.cacheIDNamespace,
-		allDispatchStates: dss,
-		buildPlatforms:    slices.Clone(o.buildPlatforms),
-		solver:            o.solver,
-		buildClient:       o.buildClient,
-		mainContext:       mainContext,
-		functions:         maps.Clone(o.functions),
-		stageResolver: o.stageResolver,
-		convertOpt: o.convertOpt,
+		lint:                      o.lint,
+		buildArgValues:            maps.Clone(o.buildArgValues),
+		globalArgs:                o.globalArgs,
+		shlex:                     shlex,
+		targetPlatform:            o.targetPlatform,
+		sourceMap:                 sourcemap,
+		llbCaps:                   o.llbCaps,
+		dexnoreMatcher:            o.dexnoreMatcher,
+		ulimit:                    slices.Clone(o.ulimit),
+		devices:                   slices.Clone(o.devices),
+		proxyEnv:                  o.proxyEnv,
+		extraHosts:                slices.Clone(o.extraHosts),
+		shmSize:                   o.shmSize,
+		cgroupParent:              o.cgroupParent,
+		buildContext:              o.buildContext,
+		cacheIDNamespace:          o.cacheIDNamespace,
+		allDispatchStates:         dss,
+		buildPlatforms:            slices.Clone(o.buildPlatforms),
+		solver:                    o.solver,
+		buildClient:               o.buildClient,
+		mainContext:               mainContext,
+		functions:                 maps.Clone(o.functions),
+		stageResolver:             o.stageResolver,
+		convertOpt:                o.convertOpt,
 		mutableBuildContextOutput: o.mutableBuildContextOutput,
 	}, nil
 }
@@ -260,9 +260,9 @@ func (dss dispatchStates) Clone() (dispatchStates, error) {
 	}
 	immutableStates, immutableStatesByName, err := dispatchStateCloneStates(dss.immutableStates, dss.immutableStatesByName)
 	return dispatchStates{
-		states:       states,
-		statesByName: statesByName,
-		immutableStates: immutableStates,
+		states:                states,
+		statesByName:          statesByName,
+		immutableStates:       immutableStates,
 		immutableStatesByName: immutableStatesByName,
 	}, err
 }

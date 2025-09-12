@@ -9,7 +9,7 @@ import (
 	"github.com/moby/buildkit/client/llb"
 )
 
-func dispatchBuild(ctx context.Context, cmd converter.CommandBuild, opt dispatchOpt,  copts ...llb.ConstraintsOpt) (buildState *dispatchState, err error) {
+func dispatchBuild(ctx context.Context, cmd converter.CommandBuild, opt dispatchOpt, copts ...llb.ConstraintsOpt) (buildState *dispatchState, err error) {
 	dOpt, err := opt.Clone()
 	if err != nil {
 		return nil, err
@@ -24,7 +24,7 @@ func dispatchBuild(ctx context.Context, cmd converter.CommandBuild, opt dispatch
 	if !ok {
 		return nil, parser.WithLocation(fmt.Errorf("no stage found with name %q", cmd.Stage), cmd.Location())
 	}
-	
+
 	buildState.buildArgs = append(cmd.Args, buildState.buildArgs...)
 	if err := fillDepsAndValidate(dss); err != nil {
 		return nil, err

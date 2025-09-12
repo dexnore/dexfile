@@ -15,7 +15,7 @@ import (
 )
 
 func detectRunMount(cmd *command, allDispatchStates *dispatchStates) bool {
-	if c, ok := cmd.Command.(*instructions.RunCommand); ok {
+	if c, ok := cmd.Command.(instructions.WithExcludeData); ok {
 		mounts := instructions.GetMounts(c)
 		sources := make([]*dispatchState, len(mounts))
 		for i, mount := range mounts {
@@ -62,7 +62,7 @@ func setCacheUIDGID(m *instructions.Mount, st llb.State) llb.State {
 	return st.File(llb.Mkdir("/cache", mode, llb.WithUIDGID(uid, gid)), llb.WithCustomName("[internal] setting cache mount permissions"))
 }
 
-func dispatchRunMounts(d *dispatchState, c *instructions.RunCommand, sources []*dispatchState, opt dispatchOpt) (_ []llb.RunOption, err error) {
+func dispatchRunMounts(d *dispatchState, c instructions.ExecOp, sources []*dispatchState, opt dispatchOpt) (_ []llb.RunOption, err error) {
 	var out []llb.RunOption
 	mounts := instructions.GetMounts(c)
 

@@ -12,7 +12,7 @@ import (
 	"github.com/moby/buildkit/solver/pb"
 )
 
-func dispatchFunction(ctx context.Context, d *dispatchState, cmd converter.Function, opt dispatchOpt,  copts ...llb.ConstraintsOpt) (breakCmd bool, err error) {
+func dispatchFunction(ctx context.Context, d *dispatchState, cmd converter.Function, opt dispatchOpt, copts ...llb.ConstraintsOpt) (breakCmd bool, err error) {
 	defer func() {
 		if err != nil {
 			err = parser.WithLocation(err, cmd.Location())
@@ -67,7 +67,7 @@ func handleFunctionCall(ctx context.Context, cmd converter.Function, d *dispatch
 	LocalCopts := append(copts, localCopt...)
 
 	if opt.llbCaps.Supports(pb.CapMergeOp) == nil {
-		d.state = llb.Merge([]llb.State{d.state, llb.Diff(d.state, ds.state , LocalCopts...)})
+		d.state = llb.Merge([]llb.State{d.state, llb.Diff(d.state, ds.state, LocalCopts...)})
 	} else {
 		d.state = d.state.File(llb.Copy(ds.state, "/", "/"), LocalCopts...)
 	}

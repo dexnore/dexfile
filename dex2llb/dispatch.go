@@ -24,10 +24,8 @@ func dispatch(ctx context.Context, d *dispatchState, cmd command, opt dispatchOp
 	_, isArg := cmd.Command.(*converter.ArgCommand)
 	if ex, ok := cmd.Command.(converter.SupportsSingleWordExpansion); ok && !isArg {
 		err := ex.Expand(func(word string) (string, error) {
-			shlex := opt.shlex
-			shlex.SkipUnsetEnv = true
 			env := getEnv(d.state)
-			newword, unmatched, err := shlex.ProcessWord(word, env)
+			newword, unmatched, err := opt.shlex.ProcessWord(word, env)
 			reportUnmatchedVariables(cmd, d.buildArgs, env, unmatched, &opt)
 			return newword, err
 		})
@@ -39,7 +37,6 @@ func dispatch(ctx context.Context, d *dispatchState, cmd command, opt dispatchOp
 		err := ex.ExpandRaw(func(word string) (string, error) {
 			lex := shell.NewLex('\\')
 			lex.SkipProcessQuotes = true
-			lex.SkipUnsetEnv = true
 			env := getEnv(d.state)
 			newword, unmatched, err := lex.ProcessWord(word, env)
 			reportUnmatchedVariables(cmd, d.buildArgs, env, unmatched, &opt)
@@ -212,6 +209,12 @@ func dispatch(ctx context.Context, d *dispatchState, cmd command, opt dispatchOp
 		ds, err := dispatchBuild(ctx, *c, opt, copts...)
 		*d = *ds
 		return true, err
+	case *converter.CommandProcess:
+		optClone, err := opt.Clone()
+		if err != nil {
+			return false, err
+		}
+		return handleProc(ctx, d.Clone(), c, optClone)
 	default:
 		return false, fmt.Errorf("unknown dispatcher command: %w", &converter.UnknownInstructionError{Instruction: c.Name(), Line: c.Location()[0].Start.Line})
 	}

@@ -78,7 +78,7 @@ func handleForLoop(ctx context.Context, d *dispatchState, cmd converter.CommandF
 			return false, parser.WithLocation(fmt.Errorf("run command: %s", err), exec.Location())
 		}
 	case *converter.CommandProcess:
-		if err, ok := handleProc(ctx, ds, exec, dOpt); err != nil {
+		if ok, err := handleProc(ctx, ds, exec, dOpt); err != nil {
 			if !ok {
 				return false, parser.WithLocation(fmt.Errorf("process command: %s", err), exec.Location())
 			}
@@ -116,8 +116,8 @@ func handleForLoop(ctx context.Context, d *dispatchState, cmd converter.CommandF
 	}
 
 	var (
-		stdout = bytes.NewBuffer(nil)
-		stderr = bytes.NewBuffer(nil)
+		stdout    = bytes.NewBuffer(nil)
+		stderr    = bytes.NewBuffer(nil)
 		returnErr bool
 	)
 	returnErr, breakCmd, err = startProcess(ctx, ctr, cmd.TimeOut, *execop, func() (bool, error) {

@@ -12,12 +12,14 @@ import (
 
 type CommandConatainer struct {
 	withNameAndCode
-	From     string
-	as       string
-	Result   *client.Result
-	State    *llb.State
-	Commands []Command
-	parent   *CommandConatainer
+	From      string
+	as        string
+	Container client.Container
+	Result    *client.Result
+	State     llb.State
+	Commands  []Command
+	parent    *CommandConatainer
+	withExternalData
 }
 
 type EndContainer struct {
@@ -42,15 +44,24 @@ func (c *CommandConatainer) Clone() *CommandConatainer {
 	if c.Result != nil {
 		result = c.Result.Clone()
 	}
+
 	return &CommandConatainer{
 		withNameAndCode: c.withNameAndCode,
 		as:              c.as,
 		parent:          parent,
 		From:            c.From,
+		Container:       c.Container,
 		Result:          result,
 		State:           c.State,
 		Commands:        slices.Clone(c.Commands),
 	}
+}
+
+func (c *CommandConatainer) Expand(expander SingleWordExpander) error {
+	if err := setMountState(&c.withExternalData, expander); err != nil {
+		return err
+	}
+	return nil
 }
 
 func (c *CommandConatainer) AddCommand(cmd Command) {
@@ -80,6 +91,28 @@ func (c *CommandProcess) FindContainer(from string) (ctr *CommandConatainer, ok 
 func parseCtr(req parseRequest) (ctr *CommandConatainer, err error) {
 	ctr = &CommandConatainer{withNameAndCode: newWithNameAndCode(req)}
 	ctr.as, ctr.From, err = parseCtrName(req.args)
+	if err != nil {
+		return nil, err
+	}
+	if err := setPreMountState(&ctr.withExternalData, req); err != nil {
+		return nil, err
+	}
+
+	if err := runPreNetworkHook(&ctr.withExternalData, req); err != nil {
+		return nil, err
+	}
+
+	if err := req.flags.Parse(); err != nil {
+		return nil, err
+	}
+
+	if err = setMountState(&ctr.withExternalData, nil); err != nil {
+		return nil, err
+	}
+
+	if err = runPostNetworkHook(&ctr.withExternalData, req); err != nil {
+		return nil, err
+	}
 	return ctr, err
 }
 
@@ -135,6 +168,14 @@ func parseProc(req parseRequest) (proc *CommandProcess, err error) {
 	} else {
 		dur := 10 * time.Minute
 		proc.TimeOut = &dur
+	}
+
+	if proc.RUN.getExternalValue(mountsKey) != nil {
+		return nil, fmt.Errorf("mounts are not supported in [PROC] command")
+	}
+
+	if proc.RUN.getExternalValue(networkKey) != nil {
+		return nil, fmt.Errorf("network is not supported in [PROC] command")
 	}
 	return proc, nil
 }

@@ -44,7 +44,7 @@ func setDeviceState(cmd *RunCommand) error {
 	return nil
 }
 
-func getDeviceState(cmd *RunCommand) *deviceState {
+func getDeviceState(cmd WithExcludeData) *deviceState {
 	v := cmd.getExternalValue(devicesKey)
 	if v == nil {
 		return nil
@@ -52,7 +52,7 @@ func getDeviceState(cmd *RunCommand) *deviceState {
 	return v.(*deviceState)
 }
 
-func GetDevices(cmd *RunCommand) []*Device {
+func GetDevices(cmd WithExcludeData) []*Device {
 	return getDeviceState(cmd).devices
 }
 

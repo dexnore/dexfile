@@ -74,7 +74,7 @@ func solveStage(ctx context.Context, target *dispatchState, buildContext *mutabl
 				err = parser.WithLocation(err, cmd.Location())
 				return d, breakCmd, err
 			}
-			if breakCmd {				
+			if breakCmd {
 				return d, true, nil
 			}
 		}

@@ -8,7 +8,7 @@ import (
 	"github.com/pkg/errors"
 )
 
-func dispatchRunDevices(c *instructions.RunCommand) ([]llb.RunOption, error) {
+func dispatchRunDevices(c instructions.WithExcludeData) ([]llb.RunOption, error) {
 	if len(instructions.GetDevices(c)) > 0 {
 		return nil, errors.Errorf("device feature is only supported in Dockerfile frontend 1.14.0-labs or later")
 	}

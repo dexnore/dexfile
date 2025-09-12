@@ -117,6 +117,14 @@ func dispatchRun(d *dispatchState, c *converter.RunCommand, proxy *llb.ProxyEnv,
 		args = withShell(d.image, args)
 	}
 
+	env, err := dispatchMetaExecOp(d, c, customname, args, proxy, sources, dopt, opt, copts...)
+	if err != nil {
+		return err
+	}
+	return commitToHistory(&d.image, "RUN "+runCommandString(args, d.buildArgs, env), true, &d.state, d.epoch)
+}
+
+func dispatchMetaExecOp(d *dispatchState, c converter.ExecOp, customname string, args []string, proxy *llb.ProxyEnv, sources []*dispatchState, dopt dispatchOpt, opt []llb.RunOption, copts ...llb.ConstraintsOpt) (shell.EnvGetter, error) {
 	opt = append(opt, llb.Args(args), dfCmd(c), location(dopt.sourceMap, c.Location()))
 	if d.ignoreCache {
 		opt = append(opt, llb.IgnoreCache)
@@ -127,13 +135,13 @@ func dispatchRun(d *dispatchState, c *converter.RunCommand, proxy *llb.ProxyEnv,
 
 	runMounts, err := dispatchRunMounts(d, c, sources, dopt)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	opt = append(opt, runMounts...)
 
 	securityOpt, err := dispatchRunSecurity(c)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if securityOpt != nil {
 		opt = append(opt, securityOpt)
@@ -141,7 +149,7 @@ func dispatchRun(d *dispatchState, c *converter.RunCommand, proxy *llb.ProxyEnv,
 
 	networkOpt, err := dispatchRunNetwork(c)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if networkOpt != nil {
 		opt = append(opt, networkOpt)
@@ -165,7 +173,7 @@ func dispatchRun(d *dispatchState, c *converter.RunCommand, proxy *llb.ProxyEnv,
 		}
 		runDevices, err := dispatchRunDevices(c)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		opt = append(opt, runDevices...)
 	}
@@ -176,7 +184,7 @@ func dispatchRun(d *dispatchState, c *converter.RunCommand, proxy *llb.ProxyEnv,
 
 	pl, err := d.state.GetPlatform(context.TODO(), copts...)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	env := getEnv(d.state)
 	opt = append(opt, llb.WithCustomName(prefixCommand(d, uppercaseCmd(processCmdEnv(&shlex, customname, withSecretEnvMask(c, env))), d.prefixPlatform, pl, env)))
@@ -197,7 +205,7 @@ func dispatchRun(d *dispatchState, c *converter.RunCommand, proxy *llb.ProxyEnv,
 	}
 
 	d.state = d.state.Run(opt...).Root()
-	return commitToHistory(&d.image, "RUN "+runCommandString(args, d.buildArgs, env), true, &d.state, d.epoch)
+	return env, nil
 }
 
 func dispatchWorkdir(d *dispatchState, c *converter.WorkdirCommand, commit bool, opt *dispatchOpt, copts ...llb.ConstraintsOpt) error {
@@ -247,13 +255,13 @@ func dispatchWorkdir(d *dispatchState, c *converter.WorkdirCommand, commit bool,
 				platform = *d.platform
 			}
 			env := getEnv(d.state)
-			d.state = d.state.File(llb.Mkdir(wd, 0755, mkdirOpt...), 
+			d.state = d.state.File(llb.Mkdir(wd, 0755, mkdirOpt...),
 				append(
-					copts, 
+					copts,
 					llb.WithCustomName(prefixCommand(d, uppercaseCmd(processCmdEnv(opt.shlex, c.String(), env)), d.prefixPlatform, &platform, env)),
 					location(opt.sourceMap, c.Location()),
 					llb.Platform(*d.platform),
-				)...
+				)...,
 			)
 			withLayer = true
 		}
@@ -518,7 +526,7 @@ func dispatchCopy(d *dispatchState, cfg copyConfig, copts ...llb.ConstraintsOpt)
 		d.cmdIndex--
 		mergeOpts = append(mergeOpts, llb.ProgressGroup(pgID, pgName, false), llb.WithCustomName(prefixCommand(d, "LINK "+name, d.prefixPlatform, &platform, env)))
 
-		d.state = d.state.WithOutput(llb.Merge([]llb.State{d.state, llb.Scratch().File(a, append(copts, copyOpts...)...)}, append(copts,mergeOpts...)...).Output())
+		d.state = d.state.WithOutput(llb.Merge([]llb.State{d.state, llb.Scratch().File(a, append(copts, copyOpts...)...)}, append(copts, mergeOpts...)...).Output())
 	} else {
 		d.state = d.state.File(a, append(copts, fileOpt...)...)
 	}

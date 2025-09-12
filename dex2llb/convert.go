@@ -345,13 +345,13 @@ func toDispatchState(ctx context.Context, dt []byte, opt df.ConvertOpt) (_ *disp
 		functions:         functions,
 		stageResolver: &stageResolver{
 			allDispatchStates: allDispatchStates,
-			namedContext: namedContext,
-			platformOpt: platformOpt,
-			metaResolver: metaResolver,
-			lint: lint,
-			opt: opt,
+			namedContext:      namedContext,
+			platformOpt:       platformOpt,
+			metaResolver:      metaResolver,
+			lint:              lint,
+			opt:               opt,
 		},
-		convertOpt: opt,
+		convertOpt:                opt,
 		mutableBuildContextOutput: buildContext,
 	}
 
@@ -405,8 +405,8 @@ func toDispatchState(ctx context.Context, dt []byte, opt df.ConvertOpt) (_ *disp
 	}
 
 	_, err = opt.Client.Solve(ctx, client.SolveRequest{
-		Evaluate: true,
-		Definition: def.ToPB(),
+		Evaluate:     true,
+		Definition:   def.ToPB(),
 		CacheImports: opt.Config.CacheImports,
 	})
 	if err != nil {
@@ -599,9 +599,9 @@ func (ds *dispatchState) init() {
 }
 
 type dispatchStates struct {
-	states       []*dispatchState
-	immutableStates []*dispatchState
-	statesByName map[string]*dispatchState
+	states                []*dispatchState
+	immutableStates       []*dispatchState
+	statesByName          map[string]*dispatchState
 	immutableStatesByName map[string]*dispatchState
 }
 

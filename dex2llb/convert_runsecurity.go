@@ -10,7 +10,7 @@ import (
 	"github.com/moby/buildkit/solver/pb"
 )
 
-func dispatchRunSecurity(c *instructions.RunCommand) (llb.RunOption, error) {
+func dispatchRunSecurity(c instructions.WithExcludeData) (llb.RunOption, error) {
 	security := instructions.GetSecurity(c)
 
 	switch security {

@@ -359,7 +359,7 @@ type RunCommand struct {
 }
 
 func (c *RunCommand) Expand(expander SingleWordExpander) error {
-	if err := setMountState(c, expander); err != nil {
+	if err := setMountState(&c.withExternalData, expander); err != nil {
 		return err
 	}
 	return nil
@@ -566,6 +566,16 @@ func HasStage(s []Stage, name string) (int, bool) {
 
 type withExternalData struct {
 	m map[any]any
+}
+
+type WithExcludeData interface {
+	getExternalValue(k any) any
+	setExternalValue(k, v any)
+}
+
+type ExecOp interface {
+	Location() []parser.Range
+	WithExcludeData
 }
 
 func (c *withExternalData) getExternalValue(k any) any {
