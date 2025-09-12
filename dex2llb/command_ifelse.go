@@ -221,9 +221,17 @@ func handleIfElse(ctx context.Context, d *dispatchState, cmd converter.Condition
 		LocalCopts = append(copts, localCopts...)
 	)
 
+	var (
+		prevStdout = bytes.NewBuffer(nil)
+		prevStderr = bytes.NewBuffer(nil)
+	)
+
 forloop:
 	for i, block = range conds {
 		if block == nil && i > 0 { // else condition (not 'else if')
+			d.state = d.state.
+				AddEnv("STDOUT", stripNewlineSuffix(prevStdout.String())[0]).
+				AddEnv("STDERR", stripNewlineSuffix(prevStderr.String())[0])
 			return exec(cmd.ConditionElse[i-1].Commands, localCopts...)
 		}
 
@@ -411,6 +419,12 @@ forloop:
 				AddEnv("STDERR", stripNewlineSuffix(stderr.String())[0])
 			return exec(conditionalCommands, LocalCopts...)
 		}, &nopCloser{stdout}, &nopCloser{stderr})
+		if stdout != nil {
+			prevStdout.Write(stdout.Bytes())
+		}
+		if stderr != nil {
+			prevStderr.Write(stderr.Bytes())
+		}
 		if returnErr {
 			return breakCmd, err
 		}

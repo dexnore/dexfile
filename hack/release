@@ -77,7 +77,7 @@ fi
 
 outputFlag="type=image,$pushFlag"
 if [ "$GITHUB_ACTIONS" = "true" ]; then
-  outputFlag="${outputFlag},\"annotation.org.opencontainers.image.title=Dockerfile Frontend\""
+  outputFlag="${outputFlag},\"annotation.org.opencontainers.image.title=Dexfile Frontend\""
   if [ -n "$GITHUB_SHA" ]; then
     outputFlag="${outputFlag},annotation.org.opencontainers.image.revision=$GITHUB_SHA"
   fi
