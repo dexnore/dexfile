@@ -1,7 +1,6 @@
 package dex2llb
 
 import (
-	// "bytes"
 	"context"
 	"fmt"
 	"strings"
@@ -37,13 +36,14 @@ func handleFunctionCall(ctx context.Context, cmd converter.Function, d *dispatch
 		return false, fmt.Errorf("unknown function: %q", cmd.FuncName)
 	}
 
-	var funcArgs = append(cmd.Args, function.Args...)
+	var funcArgs = append(function.Args, cmd.Args...)
 	ds := d.Clone()
 	dOpt, err := opt.Clone()
 	if err != nil {
 		return false, err
 	}
 	for _, kvp := range funcArgs {
+		ds.opt.buildArgValues[kvp.Key] = kvp.ValueString()
 		ds.state = ds.state.AddEnv(kvp.Key, kvp.ValueString())
 	}
 	for _, cmd := range function.Commands {

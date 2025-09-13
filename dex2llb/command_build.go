@@ -25,6 +25,10 @@ func dispatchBuild(ctx context.Context, cmd converter.CommandBuild, opt dispatch
 		return nil, parser.WithLocation(fmt.Errorf("no stage found with name %q", cmd.Stage), cmd.Location())
 	}
 
+	for _, kvp := range cmd.Args {
+		dOpt.buildArgValues[kvp.Key] = kvp.ValueString()
+	}
+
 	buildState.buildArgs = append(cmd.Args, buildState.buildArgs...)
 	if err := fillDepsAndValidate(dss); err != nil {
 		return nil, err
