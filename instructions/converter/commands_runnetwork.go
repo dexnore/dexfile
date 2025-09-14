@@ -61,7 +61,7 @@ func runPostNetworkHook(cmd *withExternalData, req parseRequest) error {
 	return nil
 }
 
-func GetNetwork(cmd WithExcludeData) NetworkMode {
+func GetNetwork(cmd WithExternalData) NetworkMode {
 	return cmd.getExternalValue(networkKey).(*networkState).networkMode
 }
 

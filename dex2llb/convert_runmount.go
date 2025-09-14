@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 
 	"github.com/dexnore/dexfile"
-	instructions "github.com/dexnore/dexfile/instructions/converter"
+	"github.com/dexnore/dexfile/instructions/converter"
 	"github.com/moby/buildkit/client/llb"
 	"github.com/moby/buildkit/solver/pb"
 	"github.com/moby/buildkit/util/system"
@@ -15,8 +15,8 @@ import (
 )
 
 func detectRunMount(cmd *command, allDispatchStates *dispatchStates) bool {
-	if c, ok := cmd.Command.(instructions.WithExcludeData); ok {
-		mounts := instructions.GetMounts(c)
+	if c, ok := cmd.Command.(converter.WithExternalData); ok {
+		mounts := converter.GetMounts(c)
 		sources := make([]*dispatchState, len(mounts))
 		for i, mount := range mounts {
 			var from string
@@ -31,8 +31,8 @@ func detectRunMount(cmd *command, allDispatchStates *dispatchStates) bool {
 			stn, ok := allDispatchStates.findStateByName(from)
 			if !ok {
 				stn = &dispatchState{
-					stage:        instructions.Stage{BaseName: from},
-					deps:         make(map[*dispatchState]instructions.Command),
+					stage:        converter.Stage{BaseName: from},
+					deps:         make(map[*dispatchState]converter.Command),
 					paths:        make(map[string]struct{}),
 					unregistered: true,
 				}
@@ -46,7 +46,7 @@ func detectRunMount(cmd *command, allDispatchStates *dispatchStates) bool {
 	return false
 }
 
-func setCacheUIDGID(m *instructions.Mount, st llb.State) llb.State {
+func setCacheUIDGID(m *converter.Mount, st llb.State) llb.State {
 	uid := 0
 	gid := 0
 	mode := os.FileMode(0755)
@@ -62,12 +62,12 @@ func setCacheUIDGID(m *instructions.Mount, st llb.State) llb.State {
 	return st.File(llb.Mkdir("/cache", mode, llb.WithUIDGID(uid, gid)), llb.WithCustomName("[internal] setting cache mount permissions"))
 }
 
-func dispatchRunMounts(d *dispatchState, c instructions.ExecOp, sources []*dispatchState, opt dispatchOpt) (_ []llb.RunOption, err error) {
+func dispatchRunMounts(d *dispatchState, c converter.ExecOp, sources []*dispatchState, opt dispatchOpt) (_ []llb.RunOption, err error) {
 	var out []llb.RunOption
-	mounts := instructions.GetMounts(c)
+	mounts := converter.GetMounts(c)
 
 	for i, mount := range mounts {
-		if mount.From == "" && mount.Type == instructions.MountTypeCache {
+		if mount.From == "" && mount.Type == converter.MountTypeCache {
 			mount.From = dexfile.EmptyImageName
 		}
 		st := llb.NewState(opt.mutableBuildContextOutput)
@@ -79,13 +79,13 @@ func dispatchRunMounts(d *dispatchState, c instructions.ExecOp, sources []*dispa
 			}
 		}
 		var mountOpts []llb.MountOption
-		if mount.Type == instructions.MountTypeTmpfs {
+		if mount.Type == converter.MountTypeTmpfs {
 			st = llb.Scratch()
 			mountOpts = append(mountOpts, llb.Tmpfs(
 				llb.TmpfsSize(mount.SizeLimit),
 			))
 		}
-		if mount.Type == instructions.MountTypeSecret {
+		if mount.Type == converter.MountTypeSecret {
 			secret, err := dispatchSecret(d, mount, c.Location())
 			if err != nil {
 				return nil, err
@@ -93,7 +93,7 @@ func dispatchRunMounts(d *dispatchState, c instructions.ExecOp, sources []*dispa
 			out = append(out, secret)
 			continue
 		}
-		if mount.Type == instructions.MountTypeSSH {
+		if mount.Type == converter.MountTypeSSH {
 			ssh, err := dispatchSSH(d, mount, c.Location())
 			if err != nil {
 				return nil, err
@@ -103,15 +103,15 @@ func dispatchRunMounts(d *dispatchState, c instructions.ExecOp, sources []*dispa
 		}
 		if mount.ReadOnly {
 			mountOpts = append(mountOpts, llb.Readonly)
-		} else if mount.Type == instructions.MountTypeBind && opt.llbCaps.Supports(pb.CapExecMountBindReadWriteNoOutput) == nil {
+		} else if mount.Type == converter.MountTypeBind && opt.llbCaps.Supports(pb.CapExecMountBindReadWriteNoOutput) == nil {
 			mountOpts = append(mountOpts, llb.ForceNoOutput)
 		}
-		if mount.Type == instructions.MountTypeCache {
+		if mount.Type == converter.MountTypeCache {
 			sharing := llb.CacheMountShared
-			if mount.CacheSharing == instructions.MountSharingPrivate {
+			if mount.CacheSharing == converter.MountSharingPrivate {
 				sharing = llb.CacheMountPrivate
 			}
-			if mount.CacheSharing == instructions.MountSharingLocked {
+			if mount.CacheSharing == converter.MountSharingLocked {
 				sharing = llb.CacheMountLocked
 			}
 			if mount.CacheID == "" {

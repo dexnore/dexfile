@@ -568,14 +568,14 @@ type withExternalData struct {
 	m map[any]any
 }
 
-type WithExcludeData interface {
+type WithExternalData interface {
 	getExternalValue(k any) any
 	setExternalValue(k, v any)
 }
 
 type ExecOp interface {
 	Location() []parser.Range
-	WithExcludeData
+	WithExternalData
 }
 
 func (c *withExternalData) getExternalValue(k any) any {

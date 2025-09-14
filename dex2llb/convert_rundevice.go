@@ -3,13 +3,13 @@
 package dex2llb
 
 import (
-	instructions "github.com/dexnore/dexfile/instructions/converter"
+	"github.com/dexnore/dexfile/instructions/converter"
 	"github.com/moby/buildkit/client/llb"
 )
 
-func dispatchRunDevices(c instructions.WithExcludeData) ([]llb.RunOption, error) {
+func dispatchRunDevices(c converter.WithExternalData) ([]llb.RunOption, error) {
 	var out []llb.RunOption
-	for _, device := range instructions.GetDevices(c) {
+	for _, device := range converter.GetDevices(c) {
 		deviceOpts := []llb.CDIDeviceOption{
 			llb.CDIDeviceName(device.Name),
 		}
