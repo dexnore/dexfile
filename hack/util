@@ -39,7 +39,7 @@ buildAttestFlags() {
 currentcontext="."
 cacheFromFlags=""
 cacheToFlags=""
-if [ "$GITHUB_ACTIONS" = "true" ] && [ "$GITHUB_REPOSITORY" = "moby/buildkit" ]; then
+if [ "$GITHUB_ACTIONS" = "true" ] && [ "$GITHUB_REPOSITORY" = "dexnore/dexfile" ]; then
   currentcontext="https://github.com/$GITHUB_REPOSITORY.git#$GITHUB_REF"
   if [ -n "$CACHE_FROM" ]; then
     for cfrom in $CACHE_FROM; do
