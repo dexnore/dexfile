@@ -55,7 +55,7 @@ jobs:
               PUSH=push
             fi
           fi
-          if [ "$GITHUB_REPOSITORY" != "moby/buildkit" ]; then
+          if [ "$GITHUB_REPOSITORY" != "dexnore/dexfile" ]; then
             PUSH=false
           fi
           echo "typ=${TYP}" >>${GITHUB_OUTPUT}
