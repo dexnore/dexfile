@@ -276,7 +276,7 @@ func toDispatchState(ctx context.Context, dt []byte, opt df.ConvertOpt) (_ *disp
 	outline := newOutlineCapture()
 	allDispatchStates := newDispatchStates()
 	var functions = make(map[string]*converter.Function, 0)
-	globalArgs, outline, err = expandAndAddDispatchState(0, converter.Stage{StageName: "meta-stage", BaseName: metaStageName}, expandStageOpt{
+	globalArgs, outline, err = expandAndAddDispatchState(0, converter.Stage{StageName: "meta-stage", BaseName: metaStageName, Commands: metaCmds}, expandStageOpt{
 		globalArgs:        globalArgs,
 		outline:           outline,
 		lint:              lint,
@@ -355,50 +355,11 @@ func toDispatchState(ctx context.Context, dt []byte, opt df.ConvertOpt) (_ *disp
 		mutableBuildContextOutput: buildContext,
 	}
 
-	for i, cmd := range metaCmds {
-		switch cmd := cmd.(type) {
-		case *converter.Stage:
-			globalArgs, outline, err = expandAndAddDispatchState(i, *cmd, expandStageOpt{
-				globalArgs:        globalArgs,
-				outline:           outline,
-				lint:              lint,
-				shlex:             shlex,
-				opt:               opt,
-				allDispatchStates: allDispatchStates,
-				namedContext:      namedContext,
-				stageName:         "meta",
-			})
-			if err != nil {
-				return nil, err
-			}
-		case *converter.ImportCommand:
-			globalArgs, outline, err = expandImportAndAddDispatchState(i, *cmd, expandImportOpt{
-				globalArgs:        globalArgs,
-				outline:           outline,
-				lint:              lint,
-				shlex:             shlex,
-				options:           opt,
-				allDispatchStates: allDispatchStates,
-				namedContext:      baseContext,
-				stageName:         "meta",
-			})
-			if err != nil {
-				return nil, err
-			}
-		case *converter.ConditionIF, *converter.ConditionElse, *converter.EndContainer, *converter.EndFunction, *converter.EndIf, *converter.CommandBuild:
-			return nil, fmt.Errorf("unsupported command %+v in meta stage", cmd)
-		default:
-			ic, err := toCommand(cmd, allDispatchStates)
-			if err != nil {
-				return nil, err
-			}
-			_, err = dispatch(ctx, metads, ic, dOpt)
-			if err != nil {
-				return nil, parser.WithLocation(err, cmd.Location())
-			}
-		}
+	var breakCmd = false
+	metads, breakCmd, err = solveStage(ctx, metads, buildContext, dOpt)
+	if err != nil {
+		return nil, err
 	}
-
 	def, err := metads.state.Marshal(ctx)
 	if err != nil {
 		return nil, err
@@ -410,11 +371,19 @@ func toDispatchState(ctx context.Context, dt []byte, opt df.ConvertOpt) (_ *disp
 		CacheImports: opt.Config.CacheImports,
 	})
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to solve meta-stage:\n%w", err)
 	}
 
 	for _, kvp := range metads.buildArgs {
 		globalArgs = globalArgs.AddOrReplace(kvp.Key, kvp.ValueString())
+	}
+
+	for _, env := range metads.image.Config.Env {
+		*globalArgs = globalArgs.Delete(env)
+	}
+
+	if breakCmd {
+		return metads, err
 	}
 
 	validateStageNames(stages, lint)

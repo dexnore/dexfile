@@ -55,7 +55,7 @@ func dispatchCtr(ctx context.Context, d *dispatchState, ctr converter.CommandCon
 		return false, err
 	}
 
-	c, err := toCommand(ctr, opt.allDispatchStates)
+	c, err := toCommand(ctr, optClone.allDispatchStates)
 	if err != nil {
 		return false, err
 	}
@@ -86,12 +86,6 @@ func dispatchCtr(ctx context.Context, d *dispatchState, ctr converter.CommandCon
 		return false, parser.WithLocation(errors.New("unable to create container"), ctr.Location())
 	}
 
-	gwctr, err := createContainer(ctx, opt.solver.Client(), execop, ctr.Result.Ref)
-	if err != nil {
-		return false, err
-	}
-
-	defer gwctr.Release(ctx)
 
 	def, err = st.Marshal(ctx, append(LocalCopts, llb.WithCustomNamef("retriving container state [%s]", ctr.From))...)
 	if err != nil {
@@ -107,9 +101,13 @@ func dispatchCtr(ctx context.Context, d *dispatchState, ctr converter.CommandCon
 		return false, parser.WithLocation(err, ctr.Location())
 	}
 
-	ctr.Container = gwctr
-	ctr.Result = res
-	ctr.State = dClone.state
+	ctr.Result, ctr.State = res, st
+	ctr.Container, err = createContainer(ctx, opt.solver.Client(), execop, res.Ref)
+	if err != nil {
+		return false, err
+	}
+
+	defer ctr.Container.Release(ctx)
 
 	for _, cmd := range ctr.Commands {
 		switch cmd := cmd.(type) {

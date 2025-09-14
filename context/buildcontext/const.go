@@ -7,6 +7,7 @@ const (
 const (
 	KeyFilename       = "filename"
 	KeyContextSubDir  = "contextsubdir"
+	KeyDexfileSubDir  = "dexfilesubdir"
 	KeyNameContext    = "contextkey"
 	KeyNameDexfile    = "dexfilekey"
 	KeyNameDockerfile = "dockerfilekey"

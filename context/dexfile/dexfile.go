@@ -63,7 +63,7 @@ func (d *df) Dexfile(ctx context.Context, lang string, opts ...llb.LocalOption) 
 			}
 		}
 		if err != nil {
-			return nil, errors.Wrapf(err, "failed to read dexfile")
+			return nil, errors.Wrapf(err, "failed to read %q", "dexfile")
 		}
 	}
 	smap := llb.NewSourceMap(d.bc.Dexfile, d.bc.Filename, lang, dt)
@@ -117,6 +117,6 @@ func detectLocalDexfile(bc dexfile.BuildContext, client dexfile.Client, opts ...
 		llb.Differ(llb.DiffNone, false),
 	}, opts...)
 
-	lsrc := llb.Local(bc.ContextLocalName, opts...)
+	lsrc := llb.Local(bc.DexfileLocalName, opts...)
 	return &lsrc
 }

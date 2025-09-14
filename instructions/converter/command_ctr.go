@@ -170,12 +170,5 @@ func parseProc(req parseRequest) (proc *CommandProcess, err error) {
 		proc.TimeOut = &dur
 	}
 
-	if proc.RUN.getExternalValue(mountsKey) != nil {
-		return nil, fmt.Errorf("mounts are not supported in [PROC] command")
-	}
-
-	if proc.RUN.getExternalValue(networkKey) != nil {
-		return nil, fmt.Errorf("network is not supported in [PROC] command")
-	}
 	return proc, nil
 }
