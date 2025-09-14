@@ -51,7 +51,7 @@ func runSecurityPostHook(cmd *RunCommand, req parseRequest) error {
 	return nil
 }
 
-func GetSecurity(cmd WithExcludeData) string {
+func GetSecurity(cmd WithExternalData) string {
 	return cmd.getExternalValue(securityKey).(*securityState).security
 }
 
