@@ -99,7 +99,7 @@ func setMountState(cmd *withExternalData, expander SingleWordExpander) error {
 	return nil
 }
 
-func getMountState(cmd WithExcludeData) *mountState {
+func getMountState(cmd WithExternalData) *mountState {
 	v := cmd.getExternalValue(mountsKey)
 	if v == nil {
 		return nil
@@ -107,7 +107,7 @@ func getMountState(cmd WithExcludeData) *mountState {
 	return v.(*mountState)
 }
 
-func GetMounts(cmd WithExcludeData) []*Mount {
+func GetMounts(cmd WithExternalData) []*Mount {
 	return getMountState(cmd).mounts
 }
 

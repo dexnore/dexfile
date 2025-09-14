@@ -3,14 +3,14 @@ package dex2llb
 import (
 	"path"
 
-	instructions "github.com/dexnore/dexfile/instructions/converter"
+	"github.com/dexnore/dexfile/instructions/converter"
 	"github.com/dexnore/dexfile/instructions/parser"
 	"github.com/moby/buildkit/client/llb"
 	"github.com/moby/buildkit/frontend/dockerfile/shell"
 	"github.com/pkg/errors"
 )
 
-func dispatchSecret(d *dispatchState, m *instructions.Mount, loc []parser.Range) (llb.RunOption, error) {
+func dispatchSecret(d *dispatchState, m *converter.Mount, loc []parser.Range) (llb.RunOption, error) {
 	id := m.CacheID
 	if m.Source != "" {
 		id = m.Source
@@ -73,12 +73,12 @@ func dispatchSecret(d *dispatchState, m *instructions.Mount, loc []parser.Range)
 
 // withSecretEnvMask returns an EnvGetter that masks secret values in the environment.
 // This is not needed to hide actual secret values but to make it clear that the value is loaded from a secret.
-func withSecretEnvMask(c instructions.WithExcludeData, env shell.EnvGetter) shell.EnvGetter {
+func withSecretEnvMask(c converter.WithExternalData, env shell.EnvGetter) shell.EnvGetter {
 	ev := &llb.EnvList{}
 	set := false
-	mounts := instructions.GetMounts(c)
+	mounts := converter.GetMounts(c)
 	for _, mount := range mounts {
-		if mount.Type == instructions.MountTypeSecret {
+		if mount.Type == converter.MountTypeSecret {
 			if mount.Env != nil {
 				ev = ev.AddOrReplace(*mount.Env, "****")
 				set = true

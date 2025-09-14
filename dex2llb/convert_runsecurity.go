@@ -5,18 +5,18 @@ package dex2llb
 import (
 	"github.com/pkg/errors"
 
-	instructions "github.com/dexnore/dexfile/instructions/converter"
+	"github.com/dexnore/dexfile/instructions/converter"
 	"github.com/moby/buildkit/client/llb"
 	"github.com/moby/buildkit/solver/pb"
 )
 
-func dispatchRunSecurity(c instructions.WithExcludeData) (llb.RunOption, error) {
-	security := instructions.GetSecurity(c)
+func dispatchRunSecurity(c converter.WithExternalData) (llb.RunOption, error) {
+	security := converter.GetSecurity(c)
 
 	switch security {
-	case instructions.SecurityInsecure:
+	case converter.SecurityInsecure:
 		return llb.Security(pb.SecurityMode_INSECURE), nil
-	case instructions.SecuritySandbox:
+	case converter.SecuritySandbox:
 		return llb.Security(pb.SecurityMode_SANDBOX), nil
 	default:
 		return nil, errors.Errorf("unsupported security mode %q", security)
