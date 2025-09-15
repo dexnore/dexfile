@@ -58,17 +58,9 @@ func convertMounts(mounts []*pb.Mount) (cm []gwclient.Mount) {
 			Ref:       nil, // Set this appropriately if you have a reference
 			Readonly:  m.Readonly,
 			MountType: m.MountType,
-		}
-		if m.CacheOpt != nil {
-			mnt.CacheOpt = m.CacheOpt.CloneVT()
-		}
-
-		if m.SecretOpt != nil {
-			mnt.SecretOpt = m.SecretOpt.CloneVT()
-		}
-
-		if m.SSHOpt != nil {
-			mnt.SSHOpt = m.SSHOpt.CloneVT()
+			CacheOpt: m.CacheOpt,
+			SecretOpt: m.SecretOpt,
+			SSHOpt: m.SSHOpt,
 		}
 		cm = append(cm, mnt)
 	}

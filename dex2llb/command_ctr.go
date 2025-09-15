@@ -60,7 +60,7 @@ func dispatchCtr(ctx context.Context, d *dispatchState, ctr converter.CommandCon
 		return false, err
 	}
 
-	_, err = dispatchMetaExecOp(dClone, &ctr, ctr.String(), []string{"fake", "cmd"}, optClone.proxyEnv, c.sources, optClone, make([]llb.RunOption, 0), LocalCopts...)
+	_, err = dispatchMetaExecOp(dClone, &ctr, ctr.String(), []string{"true"}, optClone.proxyEnv, c.sources, optClone, make([]llb.RunOption, 0), LocalCopts...)
 	if err != nil {
 		return false, err
 	}
@@ -86,7 +86,6 @@ func dispatchCtr(ctx context.Context, d *dispatchState, ctr converter.CommandCon
 		return false, parser.WithLocation(errors.New("unable to create container"), ctr.Location())
 	}
 
-
 	def, err = st.Marshal(ctx, append(LocalCopts, llb.WithCustomNamef("retriving container state [%s]", ctr.From))...)
 	if err != nil {
 		return false, err
@@ -101,7 +100,7 @@ func dispatchCtr(ctx context.Context, d *dispatchState, ctr converter.CommandCon
 		return false, parser.WithLocation(err, ctr.Location())
 	}
 
-	ctr.Result, ctr.State = res, st
+	ctr.Result, ctr.State = res, dClone.state
 	ctr.Container, err = createContainer(ctx, opt.solver.Client(), execop, res.Ref)
 	if err != nil {
 		return false, err
@@ -229,20 +228,14 @@ func handleProc(ctx context.Context, d *dispatchState, cmd *converter.CommandPro
 			WithValue(ARG_STDOUT, stripNewlineSuffix(stdout.String())[0]).
 			WithValue(ARG_STDERR, stripNewlineSuffix(stderr.String())[0])
 	}()
-	err = cmd.RUN.Expand(func(word string) (string, error) {
-		env := getEnv(d.state)
-		newword, unmatched, err := opt.shlex.ProcessWord(word, env)
-		reportUnmatchedVariables(cmd, d.buildArgs, env, unmatched, &opt)
-		return newword, err
-	})
-	if err != nil {
-		return false, err
-	}
 	dc, err := toCommand(cmd.RUN, opt.allDispatchStates)
 	if err != nil {
 		return false, err
 	}
-	err = dispatchRun(d, &cmd.RUN, opt.proxyEnv, dc.sources, opt, llb.WithCustomNamef("%s", cmd.String()))
+	if err := dispatcherExpand(d, dc, opt); err != nil {
+		return false, err
+	}
+	err = dispatchRun(d, &cmd.RUN, opt.proxyEnv, dc.sources, opt, llb.WithCustomNamef("PROC => %s", cmd.String()))
 	if err != nil {
 		return false, err
 	}
@@ -272,8 +265,11 @@ func handleProc(ctx context.Context, d *dispatchState, cmd *converter.CommandPro
 	retErr, _, err = startProcess(ctx, ctr.Container, cmd.TimeOut, *execop, func() (bool, error) {
 		return false, nil
 	}, &nopCloser{stdout}, &nopCloser{stderr})
+	if err != nil {
+		err = parser.WithLocation(fmt.Errorf("%s: %w", stderr.String(), err), cmd.RUN.Location())
+	}
 	if retErr && err != nil {
-		return true, parser.WithLocation(fmt.Errorf("%s: %w", stderr.String(), err), cmd.RUN.Location())
+		return true, err
 	}
 
 	return true, err

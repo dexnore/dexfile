@@ -289,23 +289,6 @@ func toDispatchState(ctx context.Context, dt []byte, opt df.ConvertOpt) (_ *disp
 	if err != nil {
 		return nil, err
 	}
-	metads := allDispatchStates.states[0]
-	platform := metads.platform
-	if platform == nil {
-		platform = &platformOpt.targetPlatform
-	}
-	metads.state = llb.Image(metads.BaseName(),
-		dfCmd(metads.SourceCode()),
-		llb.Platform(*platform),
-		opt.Config.ImageResolveMode,
-		llb.WithCustomName(prefixCommand(metads, "FROM "+metads.BaseName(), opt.Config.MultiPlatformRequested, platform, emptyEnvs{})),
-		location(opt.SourceMap, metads.Location()),
-	)
-	for _, k := range globalArgs.Keys() {
-		if v, ok := globalArgs.Get(k); ok {
-			metads.state = metads.state.AddEnv(k, v)
-		}
-	}
 	buildContext := &mutableDexfileOutput{}
 	var dexnoreMatcher *patternmatcher.PatternMatcher
 	if opt.BC != nil {
@@ -356,9 +339,16 @@ func toDispatchState(ctx context.Context, dt []byte, opt df.ConvertOpt) (_ *disp
 	}
 
 	var breakCmd = false
+	metads := allDispatchStates.states[0]
+	if err := fillDepsAndValidate(allDispatchStates); err != nil {
+		return nil, err
+	}
 	metads, breakCmd, err = solveStage(ctx, metads, buildContext, dOpt)
 	if err != nil {
 		return nil, err
+	}
+	if breakCmd {
+		return metads, err
 	}
 	def, err := metads.state.Marshal(ctx)
 	if err != nil {
@@ -378,14 +368,17 @@ func toDispatchState(ctx context.Context, dt []byte, opt df.ConvertOpt) (_ *disp
 		globalArgs = globalArgs.AddOrReplace(kvp.Key, kvp.ValueString())
 	}
 
-	for _, env := range metads.image.Config.Env {
-		*globalArgs = globalArgs.Delete(env)
+	envlist, err := metads.state.Env(ctx)
+	if err != nil {
+		return nil, err
 	}
 
-	if breakCmd {
-		return metads, err
+	for _, k := range envlist.Keys() {
+		if !slices.Contains(metads.image.Config.Env, k) {
+			v, _ := envlist.Get(k)
+			globalArgs = globalArgs.AddOrReplace(k, v)
+		}
 	}
-
 	validateStageNames(stages, lint)
 	validateCommandCasing(stages, lint)
 
