@@ -120,7 +120,6 @@ func createContainer(ctx context.Context, c gwclient.Client, execop *execOp, ref
 func startContainer(ctx context.Context, ctr gwclient.Container, execop *pb.ExecOp, stdout, stderr io.WriteCloser) (gwclient.ContainerProcess, error) {
 	if execop == nil {
 		return nil, fmt.Errorf("failed to create ctr process %+v", execop)
-		// return ctr.Start(ctx, client.StartRequest{})
 	}
 	startReq := gwclient.StartRequest{
 		Args:                      execop.Meta.Args,

@@ -67,22 +67,22 @@ func allMountTypes() []string {
 	return types
 }
 
-func runMountPreHook(cmd *RunCommand, req parseRequest) error {
-	return setPreMountState(&cmd.withExternalData, req)
+func runMountPreHook(cmd WithExternalData, req parseRequest) error {
+	return setPreMountState(cmd, req)
 }
 
-func setPreMountState(cmd *withExternalData, req parseRequest) error {
+func setPreMountState(cmd WithExternalData, req parseRequest) error {
 	st := &mountState{}
 	st.flag = req.flags.AddStrings("mount")
 	cmd.setExternalValue(mountsKey, st)
 	return nil
 }
 
-func runMountPostHook(cmd *RunCommand, req parseRequest) error {
-	return setMountState(&cmd.withExternalData, nil)
+func runMountPostHook(cmd WithExternalData, req parseRequest) error {
+	return setMountState(cmd, nil)
 }
 
-func setMountState(cmd *withExternalData, expander SingleWordExpander) error {
+func setMountState(cmd WithExternalData, expander SingleWordExpander) error {
 	st := getMountState(cmd)
 	if st == nil {
 		return errors.Errorf("no mount state")

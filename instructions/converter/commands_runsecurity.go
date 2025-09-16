@@ -28,14 +28,14 @@ func init() {
 	parseRunPostHooks = append(parseRunPostHooks, runSecurityPostHook)
 }
 
-func runSecurityPreHook(cmd *RunCommand, req parseRequest) error {
+func runSecurityPreHook(cmd WithExternalData, req parseRequest) error {
 	st := &securityState{}
 	st.flag = req.flags.AddString("security", SecuritySandbox)
 	cmd.setExternalValue(securityKey, st)
 	return nil
 }
 
-func runSecurityPostHook(cmd *RunCommand, req parseRequest) error {
+func runSecurityPostHook(cmd WithExternalData, req parseRequest) error {
 	st := cmd.getExternalValue(securityKey).(*securityState)
 	if st == nil {
 		return errors.Errorf("no security state")

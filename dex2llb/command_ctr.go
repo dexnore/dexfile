@@ -22,7 +22,7 @@ var (
 	ARG_STDERR = dexfile.ScopedVariable("STDERR")
 )
 
-func dispatchCtr(ctx context.Context, d *dispatchState, ctr converter.CommandConatainer, opt dispatchOpt, copts ...llb.ConstraintsOpt) (breakCmd bool, err error) {
+func dispatchCtr(ctx context.Context, d *dispatchState, ctr *converter.CommandConatainer, sources []*dispatchState, opt dispatchOpt, copts ...llb.ConstraintsOpt) (breakCmd bool, err error) {
 	st := d.state
 	if ctr.From != "" {
 		index, err := strconv.Atoi(ctr.From)
@@ -55,12 +55,7 @@ func dispatchCtr(ctx context.Context, d *dispatchState, ctr converter.CommandCon
 		return false, err
 	}
 
-	c, err := toCommand(ctr, optClone.allDispatchStates)
-	if err != nil {
-		return false, err
-	}
-
-	_, err = dispatchMetaExecOp(dClone, &ctr, ctr.String(), []string{"true"}, optClone.proxyEnv, c.sources, optClone, make([]llb.RunOption, 0), LocalCopts...)
+	_, err = dispatchMetaExecOp(dClone, ctr, ctr.String(), []string{"true"}, optClone.proxyEnv, sources, optClone, make([]llb.RunOption, 0), LocalCopts...)
 	if err != nil {
 		return false, err
 	}

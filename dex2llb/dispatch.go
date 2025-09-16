@@ -31,11 +31,6 @@ func dispatch(ctx context.Context, d *dispatchState, cmd command, opt dispatchOp
 	case *converter.RunCommand:
 		return false, dispatchRun(d, c, opt.proxyEnv, cmd.sources, opt, copts...)
 	case *converter.WorkdirCommand:
-		// dir, err := d.state.GetDir(ctx)
-		// if err != nil {
-		// 	return false, err
-		// }
-		// return false, fmt.Errorf("WorkingDir EXEC %q", dir)
 		return false, dispatchWorkdir(d, c, true, &opt, copts...)
 	case *converter.AddCommand:
 		err = dispatchCopy(d, copyConfig{
@@ -178,7 +173,7 @@ func dispatch(ctx context.Context, d *dispatchState, cmd command, opt dispatchOp
 			return false, nil
 		}, opt, copts...)
 	case *converter.CommandConatainer:
-		return dispatchCtr(ctx, d, *c, opt, copts...)
+		return dispatchCtr(ctx, d, c, cmd.sources, opt, copts...)
 	case *converter.Function:
 		return dispatchFunction(ctx, d, *c, opt, copts...)
 	case *converter.CommandBuild:

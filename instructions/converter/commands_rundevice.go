@@ -16,18 +16,18 @@ func init() {
 	parseRunPostHooks = append(parseRunPostHooks, runDevicePostHook)
 }
 
-func runDevicePreHook(cmd *RunCommand, req parseRequest) error {
+func runDevicePreHook(cmd WithExternalData, req parseRequest) error {
 	st := &deviceState{}
 	st.flag = req.flags.AddStrings("device")
 	cmd.setExternalValue(devicesKey, st)
 	return nil
 }
 
-func runDevicePostHook(cmd *RunCommand, req parseRequest) error {
+func runDevicePostHook(cmd WithExternalData, req parseRequest) error {
 	return setDeviceState(cmd)
 }
 
-func setDeviceState(cmd *RunCommand) error {
+func setDeviceState(cmd WithExternalData) error {
 	st := getDeviceState(cmd)
 	if st == nil {
 		return errors.Errorf("no device state")
