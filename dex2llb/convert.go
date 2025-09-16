@@ -336,6 +336,8 @@ func toDispatchState(ctx context.Context, dt []byte, opt df.ConvertOpt) (_ *disp
 		},
 		convertOpt:                opt,
 		mutableBuildContextOutput: buildContext,
+		namedContext: namedContext,
+		baseContext: baseContext,
 	}
 
 	var breakCmd = false
@@ -471,6 +473,7 @@ func toCommand(ic converter.Command, allDispatchStates *dispatchStates) (command
 		}
 	}
 
+	detectRunMount(&cmd, allDispatchStates)
 	if c, ok := ic.(*converter.CommandConatainer); ok {
 		if c.From != "" {
 			var stn *dispatchState
@@ -491,12 +494,8 @@ func toCommand(ic converter.Command, allDispatchStates *dispatchStates) (command
 					return command{}, err
 				}
 			}
-			cmd.sources = []*dispatchState{stn}
+			cmd.sources = append(cmd.sources, stn)
 		}
-	}
-
-	if ok := detectRunMount(&cmd, allDispatchStates); ok {
-		return cmd, nil
 	}
 
 	return cmd, nil

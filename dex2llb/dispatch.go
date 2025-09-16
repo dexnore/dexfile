@@ -191,6 +191,18 @@ func dispatch(ctx context.Context, d *dispatchState, cmd command, opt dispatchOp
 			return false, err
 		}
 		return handleProc(ctx, d.Clone(), c, optClone)
+	case *converter.ImportCommand:
+		opt.globalArgs, d.outline, err = expandImportAndAddDispatchState(len(opt.allDispatchStates.statesByName), *c, expandImportOpt{
+			globalArgs:        opt.globalArgs.(*llb.EnvList),
+			outline:           d.outline,
+			lint:              opt.lint,
+			shlex:             opt.shlex,
+			options:           opt.convertOpt,
+			allDispatchStates: opt.allDispatchStates,
+			namedContext:      opt.baseContext,
+			stageName:         "import",
+		})
+		return false, err
 	default:
 		return false, fmt.Errorf("unknown dispatcher command: %w", &converter.UnknownInstructionError{Instruction: c.Name(), Line: c.Location()[0].Start.Line})
 	}
