@@ -336,8 +336,8 @@ func toDispatchState(ctx context.Context, dt []byte, opt df.ConvertOpt) (_ *disp
 		},
 		convertOpt:                opt,
 		mutableBuildContextOutput: buildContext,
-		namedContext: namedContext,
-		baseContext: baseContext,
+		namedContext:              namedContext,
+		baseContext:               baseContext,
 	}
 
 	var breakCmd = false

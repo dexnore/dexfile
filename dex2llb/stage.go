@@ -14,7 +14,7 @@ import (
 	"github.com/moby/buildkit/util/system"
 )
 
-func solveStage(ctx context.Context, target *dispatchState, buildContext *mutableDexfileOutput, opt dispatchOpt) (_ *dispatchState, breakCmd bool, err error) {
+func solveStage(ctx context.Context, target *dispatchState, buildContext *mutableDexfileOutput, opt dispatchOpt, copts ...llb.ConstraintsOpt) (_ *dispatchState, breakCmd bool, err error) {
 	var platformOpt = buildPlatformOpt(&opt.convertOpt)
 
 	allReachable, err := resolveReachableStage(ctx, opt.allDispatchStates, target, opt.stageResolver)
@@ -70,7 +70,7 @@ func solveStage(ctx context.Context, target *dispatchState, buildContext *mutabl
 		d.state = d.state.Network(opt.convertOpt.Config.NetworkMode)
 		d.opt = opt
 		for _, cmd := range d.commands {
-			if breakCmd, err = dispatch(ctx, d, cmd, opt); err != nil {
+			if breakCmd, err = dispatch(ctx, d, cmd, opt, copts...); err != nil {
 				err = parser.WithLocation(err, cmd.Location())
 				return d, breakCmd, err
 			}

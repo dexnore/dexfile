@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/dexnore/dexfile"
+	"github.com/dexnore/dexfile/dex2llb/internal"
 	"github.com/dexnore/dexfile/instructions/converter"
 	"github.com/dexnore/dexfile/instructions/parser"
 	"github.com/moby/buildkit/client/llb"
@@ -25,20 +26,9 @@ var (
 func dispatchCtr(ctx context.Context, d *dispatchState, ctr *converter.CommandConatainer, sources []*dispatchState, opt dispatchOpt, copts ...llb.ConstraintsOpt) (breakCmd bool, err error) {
 	st := d.state
 	if ctr.From != "" {
-		index, err := strconv.Atoi(ctr.From)
+		st, err = containerState(ctr, opt.allDispatchStates)
 		if err != nil {
-			stn, ok := opt.allDispatchStates.findStateByName(ctr.From)
-			if !ok {
-				st = llb.Image(ctr.From)
-			} else {
-				st = stn.state
-			}
-		} else {
-			stn, err := opt.allDispatchStates.findStateByIndex(index)
-			if err != nil {
-				return false, err
-			}
-			st = stn.state
+			return false, err
 		}
 	}
 	ctrID := identity.NewID()
@@ -50,6 +40,7 @@ func dispatchCtr(ctx context.Context, d *dispatchState, ctr *converter.CommandCo
 
 	dClone := d.Clone()
 	dClone.state = st
+	
 	optClone, err := opt.Clone()
 	if err != nil {
 		return false, err
@@ -65,16 +56,9 @@ func dispatchCtr(ctx context.Context, d *dispatchState, ctr *converter.CommandCo
 		return false, err
 	}
 
-	var execop *execOp
-	for i := len(def.Def) - 1; i >= 0; i-- {
-		def := def.Def[i]
-		var pop pb.Op
-		if err := pop.UnmarshalVT(def); err != nil {
-			return false, err
-		}
-		if execop = solveOp(&pop); execop != nil {
-			break
-		}
+	execop, err := internal.MarshalToExecOp(def)
+	if err != nil {
+		return false, err
 	}
 
 	if execop == nil {
@@ -96,7 +80,37 @@ func dispatchCtr(ctx context.Context, d *dispatchState, ctr *converter.CommandCo
 	}
 
 	ctr.Result, ctr.State = res, dClone.state
-	ctr.Container, err = createContainer(ctx, opt.solver.Client(), execop, res.Ref)
+
+	var converterMounts = converter.GetMounts(ctr)
+	var ctrMounts = make(map[*pb.Mount]*client.Result, len(converterMounts) + 1)
+	if ml := len(execop.Exec.Mounts); (ml != len(converterMounts) + 1) || ml < 1 {
+		return false, errors.New("internal error: failed to create container")
+	}
+	ctrMounts[execop.Exec.Mounts[0]] = res
+	for i := 1; i < len(execop.Exec.Mounts); i++ {
+		mount := execop.Exec.Mounts[i]
+		convMount := converterMounts[i - 1]
+		mountedState, err := dispatchExecOpMount(dClone, i - 1, convMount, sources, optClone)
+		if err != nil {
+			return false, err
+		}
+
+		def, err := mountedState.Marshal(ctx, llb.WithCustomNamef("mounting %s to container %s", convMount.From, ctr.From))
+		if err != nil {
+			return false, err
+		}
+
+		res, err := opt.solver.Client().Solve(ctx, client.SolveRequest{
+			Definition:   def.ToPB(),
+			CacheImports: opt.solver.Client().Config().CacheImports,
+		})
+		if err != nil {
+			return false, err
+		}
+
+		ctrMounts[mount] = res
+	}
+	ctr.Container, err = internal.CreateContainer(ctx, opt.solver.Client(), execop, ctrMounts)
 	if err != nil {
 		return false, err
 	}
@@ -195,6 +209,29 @@ func dispatchCtr(ctx context.Context, d *dispatchState, ctr *converter.CommandCo
 	}
 
 	return false, nil
+}
+
+func containerState(ctr *converter.CommandConatainer, ds *dispatchStates) (llb.State, error) {
+	return findState(ctr.From, ds)
+}
+
+func findState(state string, ds *dispatchStates) (st llb.State, err error) {
+	index, err := strconv.Atoi(state)
+	if err != nil {
+		stn, ok := ds.findStateByName(state)
+		if !ok {
+			st = llb.Image(state)
+		} else {
+			st = stn.state
+		}
+	} else {
+		stn, err := ds.findStateByIndex(index)
+		if err != nil {
+			return st, err
+		}
+		st = stn.state
+	}
+	return st, nil
 }
 
 func handleProc(ctx context.Context, d *dispatchState, cmd *converter.CommandProcess, opt dispatchOpt) (false bool, err error) {

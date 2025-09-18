@@ -166,3 +166,48 @@ func dispatchRunMounts(d *dispatchState, c converter.ExecOp, sources []*dispatch
 	}
 	return out, nil
 }
+
+func dispatchExecOpMount(d *dispatchState, index int, mount *converter.Mount, sources []*dispatchState, opt dispatchOpt) (st llb.State, err error) {
+	if mount.From == "" && mount.Type == converter.MountTypeCache {
+		mount.From = dexfile.EmptyImageName
+	}
+	if opt.mutableBuildContextOutput.Output == nil {
+		ctxPaths := map[string]struct{}{}
+		for p := range d.ctxPaths {
+			ctxPaths[p] = struct{}{}
+		}
+		opts := filterPaths(ctxPaths)
+		bctx := opt.convertOpt.MainContext
+		if opt.convertOpt.BC != nil {
+			bctx, err = opt.convertOpt.BC.MainContext(context.TODO(), opts...)
+			if err != nil {
+				return st, err
+			}
+		} else if bctx == nil {
+			bctx = maincontext.DefaultMainContext(opts...)
+		}
+		opt.mutableBuildContextOutput.Output = bctx.Output()
+	}
+	st = llb.NewState(opt.mutableBuildContextOutput)
+	if mount.From != "" {
+		src := sources[index]
+		st = src.state
+		if !src.dispatched {
+			return st, errors.Errorf("cannot mount from stage %q to %q, stage needs to be defined before current command", mount.From, mount.Target)
+		}
+	}
+	if mount.Type == converter.MountTypeTmpfs {
+		st = llb.Scratch()
+	}
+	if mount.Type == converter.MountTypeSecret {
+		return
+	}
+	if mount.Type == converter.MountTypeSSH {
+		return
+	}
+	if src := path.Join("/", mount.Source); src != "/" {
+	} else if mount.UID != nil || mount.GID != nil || mount.Mode != nil {
+		st = setCacheUIDGID(mount, st)
+	}
+	return
+}
