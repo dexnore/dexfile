@@ -81,35 +81,11 @@ func dispatchCtr(ctx context.Context, d *dispatchState, ctr *converter.CommandCo
 
 	ctr.Result, ctr.State = res, dClone.state
 
-	var converterMounts = converter.GetMounts(ctr)
-	var ctrMounts = make(map[*pb.Mount]*client.Result, len(converterMounts) + 1)
-	if ml := len(execop.Exec.Mounts); (ml != len(converterMounts) + 1) || ml < 1 {
-		return false, errors.New("internal error: failed to create container")
+	ctrMounts, err := mountsForContainer(ctx, ctr, execop, sources, res, dClone, optClone)
+	if err != nil {
+		return false, err
 	}
-	ctrMounts[execop.Exec.Mounts[0]] = res
-	for i := 1; i < len(execop.Exec.Mounts); i++ {
-		mount := execop.Exec.Mounts[i]
-		convMount := converterMounts[i - 1]
-		mountedState, err := dispatchExecOpMount(dClone, i - 1, convMount, sources, optClone)
-		if err != nil {
-			return false, err
-		}
 
-		def, err := mountedState.Marshal(ctx, llb.WithCustomNamef("mounting %s to container %s", convMount.From, ctr.From))
-		if err != nil {
-			return false, err
-		}
-
-		res, err := opt.solver.Client().Solve(ctx, client.SolveRequest{
-			Definition:   def.ToPB(),
-			CacheImports: opt.solver.Client().Config().CacheImports,
-		})
-		if err != nil {
-			return false, err
-		}
-
-		ctrMounts[mount] = res
-	}
 	ctr.Container, err = internal.CreateContainer(ctx, opt.solver.Client(), execop, ctrMounts)
 	if err != nil {
 		return false, err
@@ -126,8 +102,8 @@ func dispatchCtr(ctx context.Context, d *dispatchState, ctr *converter.CommandCo
 			if err != nil {
 				return false, err
 			}
-			if ok, err := handleProc(ctx, dClone, cmd, optClone); err != nil {
-				if !ok {
+			if stdout, stderr, err := handleProc(ctx, dClone, cmd, optClone); err != nil {
+				if stdout.String() == "" && stderr.String() == "" {
 					return false, parser.WithLocation(fmt.Errorf("failed to start [CTR] process: %s\n%w", strings.Join(cmd.RUN.CmdLine, " "), err), cmd.Location())
 				}
 				return false, err
@@ -234,23 +210,18 @@ func findState(state string, ds *dispatchStates) (st llb.State, err error) {
 	return st, nil
 }
 
-func handleProc(ctx context.Context, d *dispatchState, cmd *converter.CommandProcess, opt dispatchOpt) (false bool, err error) {
+func handleProc(ctx context.Context, d *dispatchState, cmd *converter.CommandProcess, opt dispatchOpt) (stdout, stderr *bytes.Buffer, err error) {
 	ctr := cmd.InContainer
 	if cmd.From != "" {
 		fromCtr, ok := cmd.FindContainer(cmd.From)
 		if !ok {
-			return false, parser.WithLocation(fmt.Errorf("no container found with name: %s", cmd.From), cmd.RUN.Location())
+			return nil, nil, parser.WithLocation(fmt.Errorf("no container found with name: %s", cmd.From), cmd.RUN.Location())
 		}
 		ctr = *fromCtr.Clone()
 	}
 	if ctr.Result == nil || ctr.Container == nil {
-		return false, fmt.Errorf("[PROC] command not supported outside [CTR] command")
+		return nil, nil, fmt.Errorf("[PROC] command not supported outside [CTR] command")
 	}
-
-	var (
-		stdout = bytes.NewBuffer(nil)
-		stderr = bytes.NewBuffer(nil)
-	)
 
 	st := d.state
 	d.state = ctr.State
@@ -262,47 +233,73 @@ func handleProc(ctx context.Context, d *dispatchState, cmd *converter.CommandPro
 	}()
 	dc, err := toCommand(cmd.RUN, opt.allDispatchStates)
 	if err != nil {
-		return false, err
+		return nil, nil, err
 	}
 	if err := dispatcherExpand(d, dc, opt); err != nil {
-		return false, err
+		return nil, nil, err
 	}
 	err = dispatchRun(d, &cmd.RUN, opt.proxyEnv, dc.sources, opt, llb.WithCustomNamef("PROC => %s", cmd.String()))
 	if err != nil {
-		return false, err
+		return nil, nil, err
 	}
 
 	def, err := d.state.Marshal(ctx)
 	if err != nil {
-		return false, err
+		return nil, nil, err
 	}
 
-	var execop *execOp
-	for i := len(def.Def) - 1; i >= 0; i-- {
-		def := def.Def[i]
-		var pop pb.Op
-		if err := pop.UnmarshalVT(def); err != nil {
-			return false, err
-		}
-		if execop = solveOp(&pop); execop != nil {
-			break
-		}
+	execop, err := internal.MarshalToExecOp(def)
+	if err != nil {
+		return nil, nil, err
 	}
 
 	if execop == nil {
-		return false, parser.WithLocation(errors.New("no [PROC] statement found"), cmd.RUN.Location())
+		return nil, nil, parser.WithLocation(errors.New("no [PROC] statement found"), cmd.RUN.Location())
 	}
 
 	var retErr bool
-	retErr, _, err = startProcess(ctx, ctr.Container, cmd.TimeOut, *execop, func() (bool, error) {
+	retErr, _, err = internal.StartProcess(ctx, ctr.Container, cmd.TimeOut, *execop, func() (bool, error) {
 		return false, nil
 	}, &nopCloser{stdout}, &nopCloser{stderr})
 	if err != nil {
 		err = parser.WithLocation(fmt.Errorf("%s: %w", stderr.String(), err), cmd.RUN.Location())
 	}
 	if retErr && err != nil {
-		return true, err
+		return stdout, stderr, err
 	}
 
-	return true, err
+	return stdout, stderr, err
+}
+
+func mountsForContainer(ctx context.Context, ctr converter.WithExternalData, execop *internal.ExecOp, sources []*dispatchState, res *client.Result, d *dispatchState, opt dispatchOpt) (map[*pb.Mount]*client.Result, error) {
+	var converterMounts = converter.GetMounts(ctr)
+	var ctrMounts = make(map[*pb.Mount]*client.Result, len(converterMounts) + 1)
+	if ml := len(execop.Exec.Mounts); (ml != len(converterMounts) + 1) || ml < 1 {
+		return nil, errors.New("internal error: failed to create container")
+	}
+	ctrMounts[execop.Exec.Mounts[0]] = res
+	for i := 1; i < len(execop.Exec.Mounts); i++ {
+		mount := execop.Exec.Mounts[i]
+		convMount := converterMounts[i - 1]
+		mountedState, err := dispatchExecOpMount(d, i - 1, convMount, sources, opt)
+		if err != nil {
+			return nil, err
+		}
+
+		def, err := mountedState.Marshal(ctx, llb.WithCustomNamef("mounting %s to container", convMount.From))
+		if err != nil {
+			return nil, err
+		}
+
+		res, err := opt.solver.Client().Solve(ctx, client.SolveRequest{
+			Definition:   def.ToPB(),
+			CacheImports: opt.solver.Client().Config().CacheImports,
+		})
+		if err != nil {
+			return nil, err
+		}
+
+		ctrMounts[mount] = res
+	}
+	return ctrMounts, nil
 }

@@ -8,12 +8,12 @@ import (
 	"regexp"
 
 	"github.com/dexnore/dexfile"
+	"github.com/dexnore/dexfile/dex2llb/internal"
 	"github.com/dexnore/dexfile/instructions/converter"
 	"github.com/dexnore/dexfile/instructions/parser"
 	"github.com/moby/buildkit/client/llb"
 	"github.com/moby/buildkit/frontend/gateway/client"
 	"github.com/moby/buildkit/identity"
-	"github.com/moby/buildkit/solver/pb"
 )
 
 func handleForLoop(ctx context.Context, d *dispatchState, cmd converter.CommandFor, exec func([]converter.Command, ...llb.ConstraintsOpt) (bool, error), opt dispatchOpt, copts ...llb.ConstraintsOpt) (breakCmd bool, err error) {
@@ -58,6 +58,13 @@ func handleForLoop(ctx context.Context, d *dispatchState, cmd converter.CommandF
 	if err != nil {
 		return false, err
 	}
+
+	var (
+		stdout    = bytes.NewBuffer(nil)
+		stderr    = bytes.NewBuffer(nil)
+		execop *internal.ExecOp
+		returnErr bool
+	)
 	switch exec := cmd.EXEC.(type) {
 	case *converter.CommandExec:
 		exec.Result = res
@@ -69,6 +76,30 @@ func handleForLoop(ctx context.Context, d *dispatchState, cmd converter.CommandF
 		if err != nil {
 			return false, parser.WithLocation(fmt.Errorf("exec command error: %w", err), exec.Location())
 		}
+
+		def, err = ds.state.Marshal(ctx)
+		if err != nil {
+			return false, err
+		}
+
+		execop, err = internal.MarshalToExecOp(def)
+		if err != nil {
+			return false, err
+		}
+
+		if execop == nil {
+			return false, parser.WithLocation(errors.New("no [FOR ... RUN] statement found"), cmd.Location())
+		}
+
+		ctrMounts, err := mountsForContainer(ctx, exec.RUN, execop, ic.sources, res, ds, dOpt)
+		if err != nil {
+			return false, err
+		}
+
+		ctr, ctrErr = internal.CreateContainer(ctx, dOpt.solver.Client(), execop, ctrMounts)
+		if ctrErr != nil {
+			return false, parser.WithLocation(ctrErr, cmd.Location())
+		}
 	case *converter.RunCommand:
 		dc, err := toCommand(exec, dOpt.allDispatchStates)
 		if err != nil {
@@ -77,10 +108,34 @@ func handleForLoop(ctx context.Context, d *dispatchState, cmd converter.CommandF
 		if _, err = dispatch(ctx, ds, dc, dOpt, LocalCopts...); err != nil {
 			return false, parser.WithLocation(fmt.Errorf("run command: %s", err), exec.Location())
 		}
+
+		def, err = ds.state.Marshal(ctx)
+		if err != nil {
+			return false, err
+		}
+
+		execop, err = internal.MarshalToExecOp(def)
+		if err != nil {
+			return false, err
+		}
+
+		if execop == nil {
+			return false, parser.WithLocation(errors.New("no [FOR ... RUN] statement found"), cmd.Location())
+		}
+
+		ctrMounts, err := mountsForContainer(ctx, exec, execop, dc.sources, res, ds, dOpt)
+		if err != nil {
+			return false, err
+		}
+
+		ctr, ctrErr = internal.CreateContainer(ctx, dOpt.solver.Client(), execop, ctrMounts)
+		if ctrErr != nil {
+			return false, parser.WithLocation(ctrErr, cmd.Location())
+		}
 	case *converter.CommandProcess:
-		if ok, err := handleProc(ctx, ds, exec, dOpt); err != nil {
-			if !ok {
-				return false, parser.WithLocation(fmt.Errorf("process command: %s", err), exec.Location())
+		if stdout, stderr, err = handleProc(ctx, ds, exec, dOpt); err != nil {
+			if stdout.String() == "" && stderr.String() == "" {
+				return false, parser.WithLocation(fmt.Errorf("process command: %w", err), exec.Location())
 			}
 			return false, err
 		}
@@ -89,45 +144,16 @@ func handleForLoop(ctx context.Context, d *dispatchState, cmd converter.CommandF
 		return false, parser.WithLocation(fmt.Errorf("unsupported [FOR] command exec: %s", exec.Name()), exec.Location())
 	}
 
-	def, err = ds.state.Marshal(ctx)
-	if err != nil {
-		return false, err
-	}
-
-	var execop *execOp
-	for i := len(def.Def) - 1; i >= 0; i-- {
-		def := def.Def[i]
-		var pop pb.Op
-		if err := pop.UnmarshalVT(def); err != nil {
-			return false, err
+	if !isProc {
+		returnErr, breakCmd, err = internal.StartProcess(ctx, ctr, cmd.TimeOut, *execop, func() (bool, error) {
+			return false, nil
+		}, &nopCloser{stdout}, &nopCloser{stderr})
+		if err != nil {
+			if returnErr {
+				return breakCmd, parser.WithLocation(fmt.Errorf("%s: %w", stderr.String(), err), cmd.Location())
+			}
+			return breakCmd, err
 		}
-		if execop = solveOp(&pop); execop != nil {
-			break
-		}
-	}
-
-	if execop == nil {
-		return false, parser.WithLocation(errors.New("no [FOR ... RUN] statement found"), cmd.Location())
-	}
-
-	ctr, ctrErr = createContainer(ctx, dOpt.solver.Client(), execop, res.Ref)
-	if ctrErr != nil {
-		return false, parser.WithLocation(ctrErr, cmd.Location())
-	}
-
-	var (
-		stdout    = bytes.NewBuffer(nil)
-		stderr    = bytes.NewBuffer(nil)
-		returnErr bool
-	)
-	returnErr, breakCmd, err = startProcess(ctx, ctr, cmd.TimeOut, *execop, func() (bool, error) {
-		return false, nil
-	}, &nopCloser{stdout}, &nopCloser{stderr})
-	if err != nil {
-		if returnErr {
-			return breakCmd, parser.WithLocation(fmt.Errorf("%s: %w", stderr.String(), err), cmd.Location())
-		}
-		return breakCmd, err
 	}
 
 	if cmd.Regex.Action == "" {
@@ -135,10 +161,6 @@ func handleForLoop(ctx context.Context, d *dispatchState, cmd converter.CommandF
 	}
 
 	defaultAs, _ := d.state.Value(ctx, dexfile.ScopedVariable(cmd.As))
-	if isProc {
-		defaultSTDOUT, _ := ds.state.Value(ctx, dexfile.ScopedVariable("STDOUT"))
-		stdout = bytes.NewBuffer([]byte(defaultSTDOUT.(string)))
-	}
 	defer func() {
 		d.state = d.state.WithValue(dexfile.ScopedVariable(cmd.As), defaultAs)
 	}()

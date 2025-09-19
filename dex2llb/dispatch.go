@@ -185,7 +185,9 @@ func dispatch(ctx context.Context, d *dispatchState, cmd command, opt dispatchOp
 		if err != nil {
 			return false, err
 		}
-		return handleProc(ctx, d.Clone(), c, optClone)
+		stdout, stderr, err := handleProc(ctx, d.Clone(), c, optClone)
+		d.state = d.state.WithValue(ARG_STDOUT, stdout).WithValue(ARG_STDERR, stderr)
+		return false, err
 	case *converter.ImportCommand:
 		opt.globalArgs, d.outline, err = expandImportAndAddDispatchState(len(opt.allDispatchStates.statesByName), *c, expandImportOpt{
 			globalArgs:        opt.globalArgs.(*llb.EnvList),
