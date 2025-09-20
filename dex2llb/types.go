@@ -181,6 +181,8 @@ type dispatchOpt struct {
 	stageResolver             *stageResolver
 	convertOpt                dexfile.ConvertOpt
 	mutableBuildContextOutput *mutableDexfileOutput
+	namedContext              func(name string, copt dexfile.ContextOpt) (dexfile.NamedContext, error)
+	baseContext               func(name string, copt dexfile.ContextOpt) (dexfile.NamedContext, error)
 }
 
 func (o dispatchOpt) Clone() (dispatchOpt, error) {
@@ -250,6 +252,8 @@ func (o dispatchOpt) Clone() (dispatchOpt, error) {
 		stageResolver:             o.stageResolver,
 		convertOpt:                o.convertOpt,
 		mutableBuildContextOutput: o.mutableBuildContextOutput,
+		namedContext:              o.namedContext,
+		baseContext:               o.baseContext,
 	}, nil
 }
 

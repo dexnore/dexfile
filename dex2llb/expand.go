@@ -101,7 +101,7 @@ func expandStageBaseName(st converter.Stage, globalArgs shell.EnvGetter, args ma
 		return "", nil, parser.WithLocation(err, st.Location())
 	}
 	if nameMatch.Result == "" {
-		return "", nil, parser.WithLocation(errors.Errorf("base name (%s) should not be blank", st.BaseName), st.Location())
+		return "", nil, parser.WithLocation(errors.Errorf("base name of stage (%q) should not be blank", st.BaseName), st.Location())
 	}
 
 	return nameMatch.Result, nameMatch.Matched, nil
@@ -135,7 +135,7 @@ func expandImportBaseName(st converter.ImportCommand, globalArgs shell.EnvGetter
 		return "", nil, parser.WithLocation(err, st.Location())
 	}
 	if nameMatch.Result == "" {
-		return "", nil, parser.WithLocation(errors.Errorf("base name (%s) should not be blank", st.BaseName), st.Location())
+		return "", nil, parser.WithLocation(errors.Errorf("base name of import (%q) should not be blank", st.BaseName), st.Location())
 	}
 
 	if supported {

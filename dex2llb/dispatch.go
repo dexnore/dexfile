@@ -31,11 +31,6 @@ func dispatch(ctx context.Context, d *dispatchState, cmd command, opt dispatchOp
 	case *converter.RunCommand:
 		return false, dispatchRun(d, c, opt.proxyEnv, cmd.sources, opt, copts...)
 	case *converter.WorkdirCommand:
-		// dir, err := d.state.GetDir(ctx)
-		// if err != nil {
-		// 	return false, err
-		// }
-		// return false, fmt.Errorf("WorkingDir EXEC %q", dir)
 		return false, dispatchWorkdir(d, c, true, &opt, copts...)
 	case *converter.AddCommand:
 		err = dispatchCopy(d, copyConfig{
@@ -73,7 +68,7 @@ func dispatch(ctx context.Context, d *dispatchState, cmd command, opt dispatchOp
 	case *converter.HealthCheckCommand:
 		return false, dispatchHealthcheck(d, c, opt.lint, copts...)
 	case *converter.ExposeCommand:
-		return false, dispatchExpose(d, c, opt.shlex, copts...)
+		return false, dispatchExpose(d, c, opt.shlex, opt, copts...)
 	case *converter.UserCommand:
 		return false, dispatchUser(d, c, true, copts...)
 	case *converter.VolumeCommand:
@@ -178,7 +173,7 @@ func dispatch(ctx context.Context, d *dispatchState, cmd command, opt dispatchOp
 			return false, nil
 		}, opt, copts...)
 	case *converter.CommandConatainer:
-		return dispatchCtr(ctx, d, *c, opt, copts...)
+		return dispatchCtr(ctx, d, c, cmd.sources, opt, copts...)
 	case *converter.Function:
 		return dispatchFunction(ctx, d, *c, opt, copts...)
 	case *converter.CommandBuild:
@@ -190,7 +185,21 @@ func dispatch(ctx context.Context, d *dispatchState, cmd command, opt dispatchOp
 		if err != nil {
 			return false, err
 		}
-		return handleProc(ctx, d.Clone(), c, optClone)
+		stdout, stderr, err := handleProc(ctx, d.Clone(), c, optClone)
+		d.state = d.state.WithValue(ARG_STDOUT, stdout).WithValue(ARG_STDERR, stderr)
+		return false, err
+	case *converter.ImportCommand:
+		opt.globalArgs, d.outline, err = expandImportAndAddDispatchState(len(opt.allDispatchStates.statesByName), *c, expandImportOpt{
+			globalArgs:        opt.globalArgs.(*llb.EnvList),
+			outline:           d.outline,
+			lint:              opt.lint,
+			shlex:             opt.shlex,
+			options:           opt.convertOpt,
+			allDispatchStates: opt.allDispatchStates,
+			namedContext:      opt.baseContext,
+			stageName:         "import",
+		})
+		return false, err
 	default:
 		return false, fmt.Errorf("unknown dispatcher command: %w", &converter.UnknownInstructionError{Instruction: c.Name(), Line: c.Location()[0].Start.Line})
 	}
@@ -202,7 +211,7 @@ func dispatcherExpand(d *dispatchState, cmd command, opt dispatchOpt) error {
 	_, isArg := cmd.Command.(*converter.ArgCommand)
 	if ex, ok := cmd.Command.(converter.SupportsSingleWordExpansion); ok && !isArg {
 		err := ex.Expand(func(word string) (string, error) {
-			env := getEnv(d.state)
+			env := mergeEnv(d.state, opt.globalArgs)
 			newword, unmatched, err := opt.shlex.ProcessWord(word, env)
 			reportUnmatchedVariables(cmd, d.buildArgs, env, unmatched, &opt)
 			return newword, err
@@ -215,7 +224,7 @@ func dispatcherExpand(d *dispatchState, cmd command, opt dispatchOpt) error {
 		err := ex.ExpandRaw(func(word string) (string, error) {
 			lex := shell.NewLex('\\')
 			lex.SkipProcessQuotes = true
-			env := getEnv(d.state)
+			env := mergeEnv(d.state, opt.globalArgs)
 			newword, unmatched, err := lex.ProcessWord(word, env)
 			reportUnmatchedVariables(cmd, d.buildArgs, env, unmatched, &opt)
 			return newword, err

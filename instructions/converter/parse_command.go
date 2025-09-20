@@ -15,8 +15,8 @@ import (
 var excludePatternsEnabled = false
 var parentsEnabled = false
 
-var parseRunPreHooks []func(*RunCommand, parseRequest) error
-var parseRunPostHooks []func(*RunCommand, parseRequest) error
+var parseRunPreHooks []func(WithExternalData, parseRequest) error
+var parseRunPostHooks []func(WithExternalData, parseRequest) error
 
 func parseKvps(args []string, cmdName string) (KeyValuePairs, error) {
 	if len(args) == 0 {

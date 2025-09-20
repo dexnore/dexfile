@@ -14,7 +14,6 @@ import (
 	"github.com/dexnore/dexfile/instructions/parser"
 	"github.com/moby/buildkit/client/llb"
 	"github.com/moby/buildkit/frontend/gateway/client"
-	"github.com/moby/buildkit/solver/pb"
 	dockerspec "github.com/moby/docker-image-spec/specs-go/v1"
 	ocispecs "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/pkg/errors"
@@ -57,23 +56,21 @@ func dispatchExec(ctx context.Context, d *dispatchState, cmd converter.CommandEx
 		return err
 	}
 
-	var execop *execOp
-	for i := len(def.Def) - 1; i >= 0; i-- {
-		def := def.Def[i]
-		var pop pb.Op
-		if err := pop.UnmarshalVT(def); err != nil {
-			return err
-		}
-		if execop = solveOp(&pop); execop != nil {
-			break
-		}
+	execop, err := internal.MarshalToExecOp(def)
+	if err != nil {
+		return err
 	}
 
 	if execop == nil {
 		return parser.WithLocation(errors.New("no conditional statement found"), cmd.Location())
 	}
 
-	ctr, ctrErr := createContainer(ctx, dOpt.solver.Client(), execop, res.Ref)
+	ctrMounts, err := mountsForContainer(ctx, cmd.RUN, execop, ic.sources, res, ds, dOpt)
+	if err != nil {
+		return err
+	}
+
+	ctr, ctrErr := internal.CreateContainer(ctx, dOpt.solver.Client(), execop, ctrMounts)
 	if ctrErr != nil {
 		return parser.WithLocation(ctrErr, cmd.Location())
 	}
@@ -90,7 +87,7 @@ func dispatchExec(ctx context.Context, d *dispatchState, cmd converter.CommandEx
 		retErr bool
 	)
 
-	retErr, _, err = startProcess(ctx, ctr, cmd.TimeOut, *execop, func() (bool, error) {
+	retErr, _, err = internal.StartProcess(ctx, ctr, cmd.TimeOut, *execop, func() (bool, error) {
 		p := platforms.DefaultSpec()
 		if ds.platform != nil {
 			p = *ds.platform

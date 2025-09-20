@@ -276,7 +276,7 @@ func toDispatchState(ctx context.Context, dt []byte, opt df.ConvertOpt) (_ *disp
 	outline := newOutlineCapture()
 	allDispatchStates := newDispatchStates()
 	var functions = make(map[string]*converter.Function, 0)
-	globalArgs, outline, err = expandAndAddDispatchState(0, converter.Stage{StageName: "meta-stage", BaseName: metaStageName}, expandStageOpt{
+	globalArgs, outline, err = expandAndAddDispatchState(0, converter.Stage{StageName: "meta-stage", BaseName: metaStageName, Commands: metaCmds}, expandStageOpt{
 		globalArgs:        globalArgs,
 		outline:           outline,
 		lint:              lint,
@@ -288,23 +288,6 @@ func toDispatchState(ctx context.Context, dt []byte, opt df.ConvertOpt) (_ *disp
 	})
 	if err != nil {
 		return nil, err
-	}
-	metads := allDispatchStates.states[0]
-	platform := metads.platform
-	if platform == nil {
-		platform = &platformOpt.targetPlatform
-	}
-	metads.state = llb.Image(metads.BaseName(),
-		dfCmd(metads.SourceCode()),
-		llb.Platform(*platform),
-		opt.Config.ImageResolveMode,
-		llb.WithCustomName(prefixCommand(metads, "FROM "+metads.BaseName(), opt.Config.MultiPlatformRequested, platform, emptyEnvs{})),
-		location(opt.SourceMap, metads.Location()),
-	)
-	for _, k := range globalArgs.Keys() {
-		if v, ok := globalArgs.Get(k); ok {
-			metads.state = metads.state.AddEnv(k, v)
-		}
 	}
 	buildContext := &mutableDexfileOutput{}
 	var dexnoreMatcher *patternmatcher.PatternMatcher
@@ -353,52 +336,22 @@ func toDispatchState(ctx context.Context, dt []byte, opt df.ConvertOpt) (_ *disp
 		},
 		convertOpt:                opt,
 		mutableBuildContextOutput: buildContext,
+		namedContext:              namedContext,
+		baseContext:               baseContext,
 	}
 
-	for i, cmd := range metaCmds {
-		switch cmd := cmd.(type) {
-		case *converter.Stage:
-			globalArgs, outline, err = expandAndAddDispatchState(i, *cmd, expandStageOpt{
-				globalArgs:        globalArgs,
-				outline:           outline,
-				lint:              lint,
-				shlex:             shlex,
-				opt:               opt,
-				allDispatchStates: allDispatchStates,
-				namedContext:      namedContext,
-				stageName:         "meta",
-			})
-			if err != nil {
-				return nil, err
-			}
-		case *converter.ImportCommand:
-			globalArgs, outline, err = expandImportAndAddDispatchState(i, *cmd, expandImportOpt{
-				globalArgs:        globalArgs,
-				outline:           outline,
-				lint:              lint,
-				shlex:             shlex,
-				options:           opt,
-				allDispatchStates: allDispatchStates,
-				namedContext:      baseContext,
-				stageName:         "meta",
-			})
-			if err != nil {
-				return nil, err
-			}
-		case *converter.ConditionIF, *converter.ConditionElse, *converter.EndContainer, *converter.EndFunction, *converter.EndIf, *converter.CommandBuild:
-			return nil, fmt.Errorf("unsupported command %+v in meta stage", cmd)
-		default:
-			ic, err := toCommand(cmd, allDispatchStates)
-			if err != nil {
-				return nil, err
-			}
-			_, err = dispatch(ctx, metads, ic, dOpt)
-			if err != nil {
-				return nil, parser.WithLocation(err, cmd.Location())
-			}
-		}
+	var breakCmd = false
+	metads := allDispatchStates.states[0]
+	if err := fillDepsAndValidate(allDispatchStates); err != nil {
+		return nil, err
 	}
-
+	metads, breakCmd, err = solveStage(ctx, metads, buildContext, dOpt)
+	if err != nil {
+		return nil, err
+	}
+	if breakCmd {
+		return metads, err
+	}
 	def, err := metads.state.Marshal(ctx)
 	if err != nil {
 		return nil, err
@@ -410,13 +363,24 @@ func toDispatchState(ctx context.Context, dt []byte, opt df.ConvertOpt) (_ *disp
 		CacheImports: opt.Config.CacheImports,
 	})
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to solve meta-stage:\n%w", err)
 	}
 
 	for _, kvp := range metads.buildArgs {
 		globalArgs = globalArgs.AddOrReplace(kvp.Key, kvp.ValueString())
 	}
 
+	envlist, err := metads.state.Env(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, k := range envlist.Keys() {
+		if !slices.Contains(metads.image.Config.Env, k) {
+			v, _ := envlist.Get(k)
+			globalArgs = globalArgs.AddOrReplace(k, v)
+		}
+	}
 	validateStageNames(stages, lint)
 	validateCommandCasing(stages, lint)
 
@@ -479,6 +443,7 @@ func toDispatchState(ctx context.Context, dt []byte, opt df.ConvertOpt) (_ *disp
 		allDispatchStates.states[0].stageName = ""
 	}
 
+	dOpt.globalArgs = globalArgs
 	retDs, _, err := solveStage(ctx, target, buildContext, dOpt)
 	return retDs, err
 }
@@ -509,6 +474,7 @@ func toCommand(ic converter.Command, allDispatchStates *dispatchStates) (command
 		}
 	}
 
+	detectRunMount(&cmd, allDispatchStates)
 	if c, ok := ic.(*converter.CommandConatainer); ok {
 		if c.From != "" {
 			var stn *dispatchState
@@ -529,48 +495,48 @@ func toCommand(ic converter.Command, allDispatchStates *dispatchStates) (command
 					return command{}, err
 				}
 			}
-			cmd.sources = []*dispatchState{stn}
+			cmd.sources = append(cmd.sources, stn)
 		}
-	}
-
-	if ok := detectRunMount(&cmd, allDispatchStates); ok {
-		return cmd, nil
 	}
 
 	return cmd, nil
 }
 
-func getEnv(state llb.State) shell.EnvGetter {
-	return &envsFromState{state: &state}
-}
-
-type envsFromState struct {
+type envMerger struct {
 	state *llb.State
+	env1, env2 shell.EnvGetter
 	once  sync.Once
-	env   shell.EnvGetter
 }
 
-func (e *envsFromState) init() {
+func mergeEnv(state llb.State, meta shell.EnvGetter) shell.EnvGetter {
+	return &envMerger{state: &state, env2: meta}
+}
+
+func (e *envMerger) init() {
 	env, err := e.state.Env(context.TODO())
 	if err != nil {
 		return
 	}
-	e.env = env
+	e.env1 = env
 }
 
-func (e *envsFromState) Get(key string) (string, bool) {
+func (e *envMerger) Get(key string) (string, bool) {
 	e.once.Do(e.init)
 	if v, err := e.state.Value(context.TODO(), df.ScopedVariable(key)); err == nil {
 		if v, ok := v.(string); ok {
 			return v, true
 		}
 	}
-	return e.env.Get(key)
+	if str, ok := e.env1.Get(key); ok {
+		return str, true
+	}
+
+	return e.env2.Get(key)
 }
 
-func (e *envsFromState) Keys() []string {
+func (e *envMerger) Keys() []string {
 	e.once.Do(e.init)
-	return e.env.Keys()
+	return slices.Concat(e.env1.Keys(), e.env2.Keys())
 }
 
 func (ds *dispatchState) asyncLocalOpts() []llb.LocalOption {

@@ -33,6 +33,6 @@ func dispatchBuild(ctx context.Context, cmd converter.CommandBuild, opt dispatch
 	if err := fillDepsAndValidate(dss); err != nil {
 		return nil, err
 	}
-	buildState, _, err = solveStage(ctx, buildState, opt.mutableBuildContextOutput, dOpt)
+	buildState, _, err = solveStage(ctx, buildState, opt.mutableBuildContextOutput, dOpt, copts...)
 	return buildState, err
 }

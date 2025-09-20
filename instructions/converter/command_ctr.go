@@ -94,25 +94,22 @@ func parseCtr(req parseRequest) (ctr *CommandConatainer, err error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := setPreMountState(&ctr.withExternalData, req); err != nil {
-		return nil, err
-	}
-
-	if err := runPreNetworkHook(&ctr.withExternalData, req); err != nil {
-		return nil, err
+	for _, fn := range parseRunPreHooks {
+		if err := fn(ctr, req); err != nil {
+			return nil, err
+		}
 	}
 
 	if err := req.flags.Parse(); err != nil {
 		return nil, err
 	}
 
-	if err = setMountState(&ctr.withExternalData, nil); err != nil {
-		return nil, err
+	for _, fn := range parseRunPostHooks {
+		if err := fn(ctr, req); err != nil {
+			return nil, err
+		}
 	}
 
-	if err = runPostNetworkHook(&ctr.withExternalData, req); err != nil {
-		return nil, err
-	}
 	return ctr, err
 }
 
@@ -170,12 +167,5 @@ func parseProc(req parseRequest) (proc *CommandProcess, err error) {
 		proc.TimeOut = &dur
 	}
 
-	if proc.RUN.getExternalValue(mountsKey) != nil {
-		return nil, fmt.Errorf("mounts are not supported in [PROC] command")
-	}
-
-	if proc.RUN.getExternalValue(networkKey) != nil {
-		return nil, fmt.Errorf("network is not supported in [PROC] command")
-	}
 	return proc, nil
 }

@@ -7,17 +7,11 @@ import (
 	"runtime/debug"
 
 	"github.com/dexnore/dexfile/client"
-
-	// "github.com/dexnore/dexfile/shiftleft"
 	"github.com/dexnore/dexfile/solver"
 	gwclient "github.com/moby/buildkit/frontend/gateway/client"
 )
 
 func Build(ctx context.Context, c gwclient.Client) (_ *gwclient.Result, err error) {
-	// if err := shiftleft.Error(c); err != nil {
-	// 	return nil, err
-	// }
-
 	clnt, err := client.NewClient(c)
 	if err != nil {
 		return nil, err

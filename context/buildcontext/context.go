@@ -25,7 +25,7 @@ func Context(ctx context.Context, c dexfile.Client, localOpts ...llb.LocalOption
 	localNameContext := contextKey(opts)
 	bc = dexfile.BuildContext{
 		ContextLocalName: dexfile.DefaultLocalNameContext,
-		DexfileLocalName: dexfile.DefaultLocalNameDexfile,
+		DexfileLocalName: dexfile.DefaultLocalNameDockerfile,
 		Filename:         dexfile.DefaultDexfileName,
 	}
 
@@ -42,41 +42,78 @@ func Context(ctx context.Context, c dexfile.Client, localOpts ...llb.LocalOption
 		bc.DexfileLocalName = v
 	}
 
+	if v, ok := opts[dexfile.DefaultLocalNameDexfile]; ok {
+		bc.DexfileLocalName = v
+	}
+
 	if v, ok := opts[KeyNameDexfile]; ok {
 		bc.ForceLocalDexfile = true
 		bc.DexfileLocalName = v
 	}
 
-	switch SourceType(localNameContext, c.BuildOpts()) {
+	switch SourceType(bc.DexfileLocalName, c.BuildOpts()) {
 	case SourceGit:
-		bc.Dexfile, _, err = internal.GitContext(opts[localNameContext], keepGitDir(opts))
+		bc.Dexfile, _, err = internal.GitContext(bc.DexfileLocalName, keepGitDir(opts))
 		if err != nil {
 			return bc, err
 		}
-		bc.Context = bc.Dexfile // contextToSubDir(bc.Dexfile, opts)
 	case SourceHTTP:
 		var filename string
-		bc.Dexfile, filename, err = internal.HTTPContext(ctx, opts[localNameContext], c)
+		bc.Dexfile, filename, err = internal.HTTPContext(ctx, bc.DexfileLocalName, c)
 		if err != nil {
 			return bc, err
 		}
 		if filename != "" {
 			bc.Filename = filename
 		}
-		bc.Context = bc.Dexfile // contextToSubDir(bc.Dexfile, opts)
 	case SourceInputs:
-		bc.Dexfile, bc.Context, err = detectClientInputs(ctx, bc, c)
+		bc.Dexfile, _, err = detectClientInputs(ctx, bc, c)
 		if err != nil {
 			return bc, err
 		}
-		// bc.Context = contextToSubDir(bc.Context, opts)
-	default:
-		return bc, errors.New("unsupported dexfile context")
+	}
+
+	switch SourceType(opts[localNameContext], c.BuildOpts()) {
+	case SourceGit:
+		bc.Context, _, err = internal.GitContext(opts[localNameContext], keepGitDir(opts))
+		if err != nil {
+			return bc, err
+		}
+		if bc.Dexfile == nil {
+			bc.Dexfile = bc.Context
+		}
+	case SourceHTTP:
+		var filename string
+		bc.Context, filename, err = internal.HTTPContext(ctx, opts[localNameContext], c)
+		if err != nil {
+			return bc, err
+		}
+		if filename != "" {
+			bc.Filename = filename
+		}
+		if bc.Dexfile == nil {
+			bc.Dexfile = bc.Context
+		}
+	case SourceInputs:
+		var Dfile *llb.State
+		Dfile, bc.Context, err = detectClientInputs(ctx, bc, c)
+		if err != nil {
+			return bc, err
+		}
+		if bc.Dexfile == nil {
+			bc.Dexfile = Dfile
+		}
 	}
 
 	if bc.Context != nil {
 		if sub, ok := opts[KeyContextSubDir]; ok {
 			bc.Context = scopeToSubDir(bc.Context, sub)
+		}
+	}
+
+	if bc.Dexfile != nil {
+		if sub, ok := opts[KeyDexfileSubDir]; ok {
+			bc.Dexfile = scopeToSubDir(bc.Dexfile, sub)
 		}
 	}
 	// Local Source
@@ -99,11 +136,11 @@ func keepGitDir(opts map[string]string) bool {
 var httpPrefix = regexp.MustCompile(`^https?://`)
 
 func SourceType(localNameContext string, opts gwclient.BuildOpts) sourceType {
-	if _, err := gitutil.ParseGitRef(opts.Opts[localNameContext]); err == nil {
+	if _, err := gitutil.ParseGitRef(localNameContext); err == nil {
 		return SourceGit
 	}
 
-	if httpPrefix.MatchString(opts.Opts[localNameContext]) {
+	if httpPrefix.MatchString(localNameContext) {
 		return SourceHTTP
 	}
 
