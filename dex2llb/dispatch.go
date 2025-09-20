@@ -68,7 +68,7 @@ func dispatch(ctx context.Context, d *dispatchState, cmd command, opt dispatchOp
 	case *converter.HealthCheckCommand:
 		return false, dispatchHealthcheck(d, c, opt.lint, copts...)
 	case *converter.ExposeCommand:
-		return false, dispatchExpose(d, c, opt.shlex, copts...)
+		return false, dispatchExpose(d, c, opt.shlex, opt, copts...)
 	case *converter.UserCommand:
 		return false, dispatchUser(d, c, true, copts...)
 	case *converter.VolumeCommand:
@@ -211,7 +211,7 @@ func dispatcherExpand(d *dispatchState, cmd command, opt dispatchOpt) error {
 	_, isArg := cmd.Command.(*converter.ArgCommand)
 	if ex, ok := cmd.Command.(converter.SupportsSingleWordExpansion); ok && !isArg {
 		err := ex.Expand(func(word string) (string, error) {
-			env := getEnv(d.state)
+			env := mergeEnv(d.state, opt.globalArgs)
 			newword, unmatched, err := opt.shlex.ProcessWord(word, env)
 			reportUnmatchedVariables(cmd, d.buildArgs, env, unmatched, &opt)
 			return newword, err
@@ -224,7 +224,7 @@ func dispatcherExpand(d *dispatchState, cmd command, opt dispatchOpt) error {
 		err := ex.ExpandRaw(func(word string) (string, error) {
 			lex := shell.NewLex('\\')
 			lex.SkipProcessQuotes = true
-			env := getEnv(d.state)
+			env := mergeEnv(d.state, opt.globalArgs)
 			newword, unmatched, err := lex.ProcessWord(word, env)
 			reportUnmatchedVariables(cmd, d.buildArgs, env, unmatched, &opt)
 			return newword, err

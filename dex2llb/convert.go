@@ -443,6 +443,7 @@ func toDispatchState(ctx context.Context, dt []byte, opt df.ConvertOpt) (_ *disp
 		allDispatchStates.states[0].stageName = ""
 	}
 
+	dOpt.globalArgs = globalArgs
 	retDs, _, err := solveStage(ctx, target, buildContext, dOpt)
 	return retDs, err
 }
@@ -501,37 +502,41 @@ func toCommand(ic converter.Command, allDispatchStates *dispatchStates) (command
 	return cmd, nil
 }
 
-func getEnv(state llb.State) shell.EnvGetter {
-	return &envsFromState{state: &state}
-}
-
-type envsFromState struct {
+type envMerger struct {
 	state *llb.State
+	env1, env2 shell.EnvGetter
 	once  sync.Once
-	env   shell.EnvGetter
 }
 
-func (e *envsFromState) init() {
+func mergeEnv(state llb.State, meta shell.EnvGetter) shell.EnvGetter {
+	return &envMerger{state: &state, env2: meta}
+}
+
+func (e *envMerger) init() {
 	env, err := e.state.Env(context.TODO())
 	if err != nil {
 		return
 	}
-	e.env = env
+	e.env1 = env
 }
 
-func (e *envsFromState) Get(key string) (string, bool) {
+func (e *envMerger) Get(key string) (string, bool) {
 	e.once.Do(e.init)
 	if v, err := e.state.Value(context.TODO(), df.ScopedVariable(key)); err == nil {
 		if v, ok := v.(string); ok {
 			return v, true
 		}
 	}
-	return e.env.Get(key)
+	if str, ok := e.env1.Get(key); ok {
+		return str, true
+	}
+
+	return e.env2.Get(key)
 }
 
-func (e *envsFromState) Keys() []string {
+func (e *envMerger) Keys() []string {
 	e.once.Do(e.init)
-	return e.env.Keys()
+	return slices.Concat(e.env1.Keys(), e.env2.Keys())
 }
 
 func (ds *dispatchState) asyncLocalOpts() []llb.LocalOption {

@@ -186,7 +186,7 @@ func dispatchMetaExecOp(d *dispatchState, c converter.ExecOp, customname string,
 	if err != nil {
 		return nil, err
 	}
-	env := getEnv(d.state)
+	env := mergeEnv(d.state, dopt.globalArgs)
 	opt = append(opt, llb.WithCustomName(prefixCommand(d, uppercaseCmd(processCmdEnv(&shlex, customname, withSecretEnvMask(c, env))), d.prefixPlatform, pl, env)))
 	for _, h := range dopt.extraHosts {
 		opt = append(opt, llb.AddExtraHost(h.Host, h.IP))
@@ -254,7 +254,7 @@ func dispatchWorkdir(d *dispatchState, c *converter.WorkdirCommand, commit bool,
 			if d.platform != nil {
 				platform = *d.platform
 			}
-			env := getEnv(d.state)
+			env := mergeEnv(d.state, opt.globalArgs)
 			d.state = d.state.File(llb.Mkdir(wd, 0755, mkdirOpt...),
 				append(
 					copts,
@@ -345,7 +345,7 @@ func dispatchCopy(d *dispatchState, cfg copyConfig, copts ...llb.ConstraintsOpt)
 		platform = *d.platform
 	}
 
-	env := getEnv(d.state)
+	env := mergeEnv(d.state, d.opt.globalArgs)
 	name := uppercaseCmd(processCmdEnv(cfg.opt.shlex, cfg.cmdToPrint.String(), env))
 	pgName := prefixCommand(d, name, d.prefixPlatform, &platform, env)
 
@@ -625,9 +625,9 @@ func dispatchHealthcheck(d *dispatchState, c *converter.HealthCheckCommand, lint
 	return commitToHistory(&d.image, fmt.Sprintf("HEALTHCHECK %q", d.image.Config.Healthcheck), false, nil, d.epoch)
 }
 
-func dispatchExpose(d *dispatchState, c *converter.ExposeCommand, shlex *shell.Lex, _ ...llb.ConstraintsOpt) error {
+func dispatchExpose(d *dispatchState, c *converter.ExposeCommand, shlex *shell.Lex, opt dispatchOpt, _ ...llb.ConstraintsOpt) error {
 	ports := []string{}
-	env := getEnv(d.state)
+	env := mergeEnv(d.state, opt.globalArgs)
 	for _, p := range c.Ports {
 		ps, err := shlex.ProcessWords(p, env)
 		if err != nil {
@@ -691,6 +691,9 @@ func dispatchArg(d *dispatchState, c *converter.ArgCommand, opt *dispatchOpt, _ 
 	commitStrs := make([]string, 0, len(c.Args))
 	usedBuildArgs := make(map[string]struct{}, len(opt.buildArgValues))
 	for _, arg := range c.Args {
+		// if arg.Key == "GO_ENTRY" {
+		// 	return fmt.Errorf("%+v\n%+v", arg.ValueString(), )
+		// }
 		validateNoSecretKey("ARG", arg.Key, c.Location(), opt.lint)
 		_, hasValue := opt.buildArgValues[arg.Key]
 		hasDefault := arg.Value != nil
@@ -710,7 +713,7 @@ func dispatchArg(d *dispatchState, c *converter.ArgCommand, opt *dispatchOpt, _ 
 			usedBuildArgs[arg.Key] = struct{}{}
 			delete(opt.buildArgValues, arg.Key)
 		} else if hasDefault {
-			env := getEnv(d.state)
+			env := mergeEnv(d.state, opt.globalArgs)
 			v, unmatched, err := opt.shlex.ProcessWord(*arg.Value, env)
 			reportUnmatchedVariables(c, d.buildArgs, env, unmatched, opt)
 			if err != nil {
