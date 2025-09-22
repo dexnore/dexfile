@@ -178,8 +178,11 @@ func dispatch(ctx context.Context, d *dispatchState, cmd command, opt dispatchOp
 		return dispatchFunction(ctx, d, *c, opt, copts...)
 	case *converter.CommandBuild:
 		ds, err := dispatchBuild(ctx, *c, opt, copts...)
+		if err != nil {
+			return true, err
+		}
 		*d = *ds
-		return true, err
+		return true, nil
 	case *converter.CommandProcess:
 		optClone, err := opt.Clone()
 		if err != nil {

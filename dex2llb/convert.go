@@ -246,9 +246,6 @@ func toDispatchState(ctx context.Context, dt []byte, opt df.ConvertOpt) (_ *disp
 	if err != nil {
 		return nil, err
 	}
-	if len(stages) == 0 {
-		return nil, errors.New("dexfile contains no stages to build")
-	}
 
 	metaResolver := opt.MetaResolver
 	if metaResolver == nil {

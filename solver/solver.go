@@ -99,7 +99,7 @@ func (s *Solver) Client() dexfile.Client {
 	return s.client
 }
 
-func (s *Solver) With(client dexfile.Client, bc dexfile.BuildContext, force bool) (dexfile.Solver, error) {
+func (s *Solver) With(client dexfile.Client, bc dexfile.BuildContext) (dexfile.Solver, error) {
 	if client == nil {
 		c := s.client.Clone()
 		c.DelOpt("cmdline")
@@ -110,18 +110,7 @@ func (s *Solver) With(client dexfile.Client, bc dexfile.BuildContext, force bool
 		client = c
 	}
 
-	slvr, err := New(client)
-	if err != nil {
-		return nil, err
-	}
-
-	bClient, err := buildClient.New(client)
-	if err != nil {
-		return nil, err
-	}
-
-	slvr.bClient = bClient
-	return slvr, nil
+	return New(client)
 }
 
 func warnOpts(r []parser.Range, detail [][]byte, url string) gwclient.WarnOpts {

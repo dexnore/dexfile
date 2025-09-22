@@ -4,6 +4,7 @@ import (
 	"context"
 	"regexp"
 	"strconv"
+	"strings"
 
 	"github.com/dexnore/dexfile"
 	"github.com/dexnore/dexfile/context/internal"
@@ -23,6 +24,7 @@ func Context(ctx context.Context, c dexfile.Client, localOpts ...llb.LocalOption
 	}()
 	opts := c.BuildOpts().Opts
 	localNameContext := contextKey(opts)
+	bc.DexfileLocalName, bc.ForceLocalDexfile = dexfileKey(opts)
 	bc = dexfile.BuildContext{
 		ContextLocalName: dexfile.DefaultLocalNameContext,
 		DexfileLocalName: dexfile.DefaultLocalNameDockerfile,
@@ -31,24 +33,6 @@ func Context(ctx context.Context, c dexfile.Client, localOpts ...llb.LocalOption
 
 	if v, ok := opts[KeyFilename]; ok {
 		bc.Filename = v
-	}
-
-	if v, ok := opts[dexfile.DefaultLocalNameDockerfile]; ok {
-		bc.DexfileLocalName = v
-	}
-
-	if v, ok := opts[KeyNameDockerfile]; ok {
-		bc.ForceLocalDexfile = true
-		bc.DexfileLocalName = v
-	}
-
-	if v, ok := opts[dexfile.DefaultLocalNameDexfile]; ok {
-		bc.DexfileLocalName = v
-	}
-
-	if v, ok := opts[KeyNameDexfile]; ok {
-		bc.ForceLocalDexfile = true
-		bc.DexfileLocalName = v
 	}
 
 	switch SourceType(bc.DexfileLocalName, c.BuildOpts()) {
@@ -117,8 +101,30 @@ func Context(ctx context.Context, c dexfile.Client, localOpts ...llb.LocalOption
 		}
 	}
 	// Local Source
+	if _, after, ok := strings.Cut(bc.ContextLocalName, "local:"); ok {
+		bc.ContextLocalName = after
+	}
+
+	if _, after, ok := strings.Cut(bc.DexfileLocalName, "local:"); ok {
+		bc.DexfileLocalName = after
+	}
 
 	return bc, nil
+}
+
+func dexfileKey(opts map[string]string) (string, bool) {
+	if dexKey, ok := opts[KeyNameDexfile]; ok {
+		return dexKey, true
+	}
+
+	if dexKey, ok := opts[KeyNameDockerfile]; ok {
+		return dexKey, true
+	}
+
+	if _, ok := opts[dexfile.DefaultLocalNameDexfile]; ok {
+		return dexfile.DefaultLocalNameDexfile, false
+	}
+	return dexfile.DefaultLocalNameDockerfile, false
 }
 
 func contextKey(opts map[string]string) string {

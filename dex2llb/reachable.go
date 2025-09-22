@@ -4,15 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"path"
 	"slices"
-	"strings"
 
 	"github.com/containerd/platforms"
 	"github.com/dexnore/dexfile"
 	config "github.com/dexnore/dexfile/client/config"
 	"github.com/dexnore/dexfile/context/buildcontext"
-	dexcontext "github.com/dexnore/dexfile/context/dexfile"
 	"github.com/dexnore/dexfile/instructions/converter"
 	"github.com/dexnore/dexfile/instructions/parser"
 	"github.com/distribution/reference"
@@ -115,41 +112,40 @@ func (s *stageResolver) resolve(ctx context.Context, all []*dispatchState, targe
 							}
 
 							if !isStage && d.imports.FileName != "" {
-								filenames := []string{d.imports.FileName, d.imports.FileName + dexfile.DefaultDexnoreName}
-
-								// dockerfile is also supported casing moby/moby#10858
-								if path.Base(d.imports.FileName) == dexfile.DefaultDexfileName {
-									filenames = append(filenames, path.Join(path.Dir(d.imports.FileName), strings.ToLower(dexfile.DefaultDexfileName)))
+								importClient := s.opt.Client.Clone()
+								for k, v := range s.opt.Client.BuildOpts().Opts {
+									importClient.SetOpt(k, v)
 								}
 
-								bc, err := s.opt.BC.BuildContext(ctx)
-								if err != nil {
-									return err
-								}
-								bc.Context = &d.state
-								bc.Dexfile = &d.state
-								bc.Filename = d.imports.FileName
-								dfile := dexcontext.New(s.opt.Client, bc)
-								src, err := dfile.Dexfile(ctx, dexfile.DefaultDexfileName, llb.FollowPaths(filenames))
-								if err != nil {
-									return err
-								}
+								importClient.DelOpt("dexfile")
+								importClient.DelOpt("dexfilekey")
+								importClient.DelOpt("dockerfilekey")
+								importClient.SetOpt(dexfile.DefaultLocalNameDockerfile, d.imports.BaseName)
+								
+								importClient.DelOpt("cmdline")
+								importClient.DelOpt("source")
+								importClient.DelOpt("build-arg:BUILDKIT_SYNTAX")
 
-								bc.Dexfile = src.Sources().State
+								pt := platforms.FormatAll(*platform)
+								if d.imports.Target != "" {
+									if _, err := platforms.Parse(d.imports.Target); err != nil {
+										return err
+									}
+									pt = d.imports.Target
+								}
+								importClient.SetOpt("platform", pt)
+								importClient.SetOpt(buildcontext.KeyFilename, d.imports.FileName)
+								importClient.SetOpt(config.KeyTarget, d.imports.Target)
+								importClient.SetOpt("dexnore::dexfile:import", "true")
 
-								c := s.opt.Client.Clone()
-								c.DelOpt("cmdline")
-								c.DelOpt("source")
-								c.DelOpt("build-arg:BUILDKIT_SYNTAX")
-								c.SetOpt(buildcontext.KeyFilename, d.imports.FileName)
-								c.SetOpt(config.KeyTarget, d.imports.Target)
 								for _, v := range d.imports.Options {
-									c.SetOpt(v.Key, v.ValueString())
+									importClient.SetOpt(v.Key, v.Value)
 								}
-								if err = c.InitConfig(); err != nil {
+
+								if err = importClient.InitConfig(); err != nil {
 									return err
 								}
-								slver, err := s.opt.Solver.With(c, bc, false)
+								slver, err := s.opt.Solver.With(importClient, dexfile.BuildContext{})
 								if err != nil {
 									return err
 								}
@@ -158,8 +154,7 @@ func (s *stageResolver) resolve(ctx context.Context, all []*dispatchState, targe
 								if err != nil {
 									return err
 								}
-
-								pt := platforms.FormatAll(*platform)
+								
 								ref, ok := res.FindRef(pt)
 								if !ok {
 									return errors.Errorf("no import found with platform %s", pt)

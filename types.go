@@ -162,7 +162,7 @@ type Dexfile2LLB interface {
 type Solver interface {
 	Solve(ctx context.Context) (*client.Result, error)
 	Client() Client
-	With(client Client, bc BuildContext, force bool) (Solver, error)
+	With(client Client, bc BuildContext) (Solver, error)
 }
 
 type Dispatcher interface {

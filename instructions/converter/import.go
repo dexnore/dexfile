@@ -23,7 +23,7 @@ type ImportCommand struct {
 	SourceCode string         // contents of the defining IMPORT command
 	Loc        []parser.Range // location of the defining IMPORT command
 
-	Options []KeyValuePairOptional // frontend options used in addition to existing
+	Options []KeyValuePair // frontend options used in addition to existing
 }
 
 func (i ImportCommand) Location() []parser.Range {
@@ -56,15 +56,13 @@ func parseImport(req parseRequest) (*ImportCommand, error) {
 		return nil, err
 	}
 
-	var options = make([]KeyValuePairOptional, len(flOptions.StringValues))
+	var options = make([]KeyValuePair, len(flOptions.StringValues))
 	for i, opt := range flOptions.StringValues {
-		parts := strings.SplitN(opt, "=", 2)
-		if len(parts) == 1 {
-			options[i].Key = parts[0]
+		if k, v, ok := strings.Cut(opt, "="); ok {
+			options[i].Key = k
+			options[i].Value = v
 		} else {
-			options[i].Key = parts[0]
-			v := parts[1]
-			options[i].Value = &v
+			return nil, errors.Errorf("invalid option %q value is required", opt)
 		}
 	}
 

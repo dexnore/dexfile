@@ -126,7 +126,7 @@ func solveStage(ctx context.Context, target *dispatchState, buildContext *mutabl
 	if opt.convertOpt.BC != nil {
 		bctx, err = opt.convertOpt.BC.MainContext(ctx, opts...)
 		if err != nil {
-			return nil, breakCmd, err
+			return nil, false, err
 		}
 	} else if bctx == nil {
 		bctx = maincontext.DefaultMainContext(opts...)
