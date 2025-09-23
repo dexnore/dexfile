@@ -18,13 +18,15 @@ func (bo *BuildOpts) SetOpt(key, value string) error {
 	return errors.Errorf("BuildOpts with key %s exists", key)
 }
 
-func (bo *BuildOpts) DelOpt(key string) error {
-	_, ok := bo.BuildOpts.Opts[key]
-	delete(bo.BuildOpts.Opts, key)
-	if !ok {
-		return errors.Errorf("BuildOpts with key %s exists", key)
+func (bo *BuildOpts) DelOpt(key ...string) (err error) {
+	for _, key := range key {
+		_, ok := bo.BuildOpts.Opts[key]
+		delete(bo.BuildOpts.Opts, key)
+		if !ok {
+			err = errors.Wrapf(err, "BuildOpts with key %s exists", key)
+		}
 	}
-	return nil
+	return err
 }
 
 func (bo *BuildOpts) WithSession(id string) {
@@ -118,8 +120,8 @@ func (bo *Client) RemoveWorker(id string) (wi WorkerInfo, _ error) {
 func (bo *Client) SetOpt(key string, value string) error {
 	return bo.buildOpts.SetOpt(key, value)
 }
-func (bo *Client) DelOpt(key string) error {
-	return bo.buildOpts.DelOpt(key)
+func (bo *Client) DelOpt(key ...string) error {
+	return bo.buildOpts.DelOpt(key...)
 }
 func (bo *Client) WithSession(id string) {
 	bo.buildOpts.WithSession(id)

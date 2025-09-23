@@ -4,12 +4,15 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"slices"
 
 	"github.com/containerd/platforms"
 	"github.com/dexnore/dexfile"
 	config "github.com/dexnore/dexfile/client/config"
+	dexctx "github.com/dexnore/dexfile/context"
 	"github.com/dexnore/dexfile/context/buildcontext"
+	"github.com/dexnore/dexfile/dex2llb/internal"
 	"github.com/dexnore/dexfile/instructions/converter"
 	"github.com/dexnore/dexfile/instructions/parser"
 	"github.com/distribution/reference"
@@ -17,6 +20,8 @@ import (
 	"github.com/moby/buildkit/client/llb/sourceresolver"
 	"github.com/moby/buildkit/exporter/containerimage/exptypes"
 	"github.com/moby/buildkit/frontend/dockerfile/linter"
+	gwpb "github.com/moby/buildkit/frontend/gateway/pb"
+	"github.com/moby/buildkit/solver/pb"
 	"github.com/moby/buildkit/util/suggest"
 	dockerspec "github.com/moby/docker-image-spec/specs-go/v1"
 	ocispecs "github.com/opencontainers/image-spec/specs-go/v1"
@@ -38,7 +43,7 @@ type rechableStageResolver interface {
 	resolve(ctx context.Context, all []*dispatchState, target *dispatchState) (map[*dispatchState]struct{}, error)
 }
 
-func (s *stageResolver) resolve(ctx context.Context, all []*dispatchState, target *dispatchState) (map[*dispatchState]struct{}, error) {
+func (s *stageResolver) resolve(ctx context.Context, all []*dispatchState, target *dispatchState) (_ map[*dispatchState]struct{}, err error) {
 	allReachable := allReachableStages(target)
 	eg, ctx := errgroup.WithContext(ctx)
 	for i, d := range all {
@@ -112,20 +117,6 @@ func (s *stageResolver) resolve(ctx context.Context, all []*dispatchState, targe
 							}
 
 							if !isStage && d.imports.FileName != "" {
-								importClient := s.opt.Client.Clone()
-								for k, v := range s.opt.Client.BuildOpts().Opts {
-									importClient.SetOpt(k, v)
-								}
-
-								importClient.DelOpt("dexfile")
-								importClient.DelOpt("dexfilekey")
-								importClient.DelOpt("dockerfilekey")
-								importClient.SetOpt(dexfile.DefaultLocalNameDockerfile, d.imports.BaseName)
-								
-								importClient.DelOpt("cmdline")
-								importClient.DelOpt("source")
-								importClient.DelOpt("build-arg:BUILDKIT_SYNTAX")
-
 								pt := platforms.FormatAll(*platform)
 								if d.imports.Target != "" {
 									if _, err := platforms.Parse(d.imports.Target); err != nil {
@@ -133,6 +124,27 @@ func (s *stageResolver) resolve(ctx context.Context, all []*dispatchState, targe
 									}
 									pt = d.imports.Target
 								}
+
+								tp, err := platforms.Parse(pt)
+								if err != nil {
+									return err
+								}
+
+								importClient := s.opt.Client.Clone()
+								for k, v := range s.opt.Client.BuildOpts().Opts {
+									importClient.SetOpt(k, v)
+								}
+
+								importClient.DelOpt(
+									"dexfile",
+									"dexfilekey",
+									"dockerfilekey",
+									"cmdline",
+									"source",
+									"build-arg:BUILDKIT_SYNTAX",
+								)
+
+								importClient.SetOpt(dexfile.DefaultLocalNameDockerfile, d.imports.BaseName)
 								importClient.SetOpt("platform", pt)
 								importClient.SetOpt(buildcontext.KeyFilename, d.imports.FileName)
 								importClient.SetOpt(config.KeyTarget, d.imports.Target)
@@ -145,50 +157,98 @@ func (s *stageResolver) resolve(ctx context.Context, all []*dispatchState, targe
 								if err = importClient.InitConfig(); err != nil {
 									return err
 								}
-								slver, err := s.opt.Solver.With(importClient, dexfile.BuildContext{})
+
+								dexClt, err := dexctx.New(importClient)
 								if err != nil {
 									return err
 								}
 
-								res, err := slver.Solve(ctx)
-								if err != nil {
-									return err
-								}
-								
-								ref, ok := res.FindRef(pt)
-								if !ok {
-									return errors.Errorf("no import found with platform %s", pt)
-								}
-
-								d.state, err = ref.ToState()
+								srcMap, err := dexClt.Dexfile(ctx)
 								if err != nil {
 									return err
 								}
 
-								imgBytes := res.Metadata[fmt.Sprintf("%s/%s", exptypes.ExporterImageConfigKey, pt)]
-								if len(imgBytes) == 0 {
-									imgBytes = res.Metadata[exptypes.ExporterImageConfigKey]
+								src, _, _, _ := parser.DetectSyntax(srcMap.Sources().Data)
+								refer, err := reference.ParseAnyReference(src)
+								if err != nil {
+									return err
+								}
+
+								frontendOpts := maps.Clone(importClient.BuildOpts().Opts)
+								deleteMapKeys(frontendOpts,
+									"dexfile",
+									"dexfilekey",
+									"dockerfilekey",
+									"cmdline",
+									"build-arg:BUILDKIT_SYNTAX",
+								)
+								frontendOpts[dexfile.DefaultLocalNameDockerfile] = d.imports.BaseName
+								frontendOpts["platform"] = pt
+								frontendOpts[buildcontext.KeyFilename] = d.imports.FileName
+								frontendOpts[config.KeyTarget] = d.imports.Target
+								frontendOpts["source"] = refer.String()
+
+								gwcaps := importClient.BuildOpts().Caps
+								var frontendInputs map[string]*pb.Definition
+								if (&gwcaps).Supports(gwpb.CapFrontendInputs) == nil {
+									inputs, err := importClient.Inputs(ctx)
+									if err != nil {
+										return errors.Wrapf(err, "failed to get frontend inputs")
+									}
+
+									frontendInputs = make(map[string]*pb.Definition)
+									for name, state := range inputs {
+										def, err := state.Marshal(ctx)
+										if err != nil {
+											return err
+										}
+										frontendInputs[name] = def.ToPB()
+									}
+								}
+
+								d.state = llb.NewState(internal.NewOutput(importClient, frontendOpts, frontendInputs, pt, s.opt.Config.CacheImports))
+								imgI, err := d.state.Value(ctx, fmt.Sprintf("%s/%s", exptypes.ExporterImageConfigKey, pt))
+								if err != nil {
+									return err
+								}
+
+								var imgBytes, baseImgBytes []byte
+								var ok bool
+								if imgBytes, ok = imgI.([]byte); !ok {
+									imgI, err := d.state.Value(ctx, exptypes.ExporterImageConfigKey)
+									if err != nil {
+										return err
+									}
+									imgBytes, _ = imgI.([]byte)
 								}
 
 								var img *dockerspec.DockerOCIImage
 								if err := json.Unmarshal(imgBytes, img); err != nil {
-									i := emptyImage(*platform)
+									i := emptyImage(tp)
 									img = &i
 								}
 								d.image = *img
 
-								var baseImg *dockerspec.DockerOCIImage
-								baseImgBytes := res.Metadata[fmt.Sprintf("%s/%s", exptypes.ExporterImageBaseConfigKey, pt)]
-								if len(baseImgBytes) == 0 {
-									baseImgBytes = res.Metadata[exptypes.ExporterImageBaseConfigKey]
+								baseImgI, err := d.state.Value(ctx, fmt.Sprintf("%s/%s", exptypes.ExporterImageBaseConfigKey, pt))
+								if err != nil {
+									return err
 								}
-								if err := json.Unmarshal(baseImgBytes, baseImg); err != nil {
-									img = new(dockerspec.DockerOCIImage) // avoid nil pointer
-									*img = emptyImage(*platform)
-								}
-								d.baseImg = baseImg
 
-								d.platform = platform
+								if baseImgBytes, ok = baseImgI.([]byte); !ok {
+									baseImgI, err := d.state.Value(ctx, exptypes.ExporterImageBaseConfigKey)
+									if err != nil {
+										return err
+									}
+									baseImgBytes, _ = baseImgI.([]byte)
+								}
+								var baseImg *dockerspec.DockerOCIImage
+								if err := json.Unmarshal(baseImgBytes, baseImg); err != nil {
+									baseImg = new(dockerspec.DockerOCIImage) // avoid nil pointer
+									*baseImg = emptyImage(tp)
+								}
+								d.baseImg = img
+
+								d.platform = &tp
 								return nil
 							}
 							return nil
@@ -298,6 +358,12 @@ func (s *stageResolver) resolve(ctx context.Context, all []*dispatchState, targe
 		return nil, err
 	}
 	return allReachable, nil
+}
+
+func deleteMapKeys(m map[string]string, keys ...string) {
+	for _, k := range keys {
+		delete(m, k)
+	}
 }
 
 func (s *stageResolver) Clone() *stageResolver {

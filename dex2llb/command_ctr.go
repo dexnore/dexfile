@@ -40,7 +40,7 @@ func dispatchCtr(ctx context.Context, d *dispatchState, ctr *converter.CommandCo
 
 	dClone := d.Clone()
 	dClone.state = st
-	
+
 	optClone, err := opt.Clone()
 	if err != nil {
 		return false, err
@@ -273,15 +273,15 @@ func handleProc(ctx context.Context, d *dispatchState, cmd *converter.CommandPro
 
 func mountsForContainer(ctx context.Context, ctr converter.WithExternalData, execop *internal.ExecOp, sources []*dispatchState, res *client.Result, d *dispatchState, opt dispatchOpt) (map[*pb.Mount]*client.Result, error) {
 	var converterMounts = converter.GetMounts(ctr)
-	var ctrMounts = make(map[*pb.Mount]*client.Result, len(converterMounts) + 1)
-	if ml := len(execop.Exec.Mounts); (ml != len(converterMounts) + 1) || ml < 1 {
+	var ctrMounts = make(map[*pb.Mount]*client.Result, len(converterMounts)+1)
+	if ml := len(execop.Exec.Mounts); (ml != len(converterMounts)+1) || ml < 1 {
 		return nil, errors.New("internal error: failed to create container")
 	}
 	ctrMounts[execop.Exec.Mounts[0]] = res
 	for i := 1; i < len(execop.Exec.Mounts); i++ {
 		mount := execop.Exec.Mounts[i]
-		convMount := converterMounts[i - 1]
-		mountedState, err := dispatchExecOpMount(d, i - 1, convMount, sources, opt)
+		convMount := converterMounts[i-1]
+		mountedState, err := dispatchExecOpMount(d, i-1, convMount, sources, opt)
 		if err != nil {
 			return nil, err
 		}

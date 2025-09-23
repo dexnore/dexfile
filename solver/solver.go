@@ -102,12 +102,10 @@ func (s *Solver) Client() dexfile.Client {
 func (s *Solver) With(client dexfile.Client, bc dexfile.BuildContext) (dexfile.Solver, error) {
 	if client == nil {
 		c := s.client.Clone()
-		c.DelOpt("cmdline")
-		c.DelOpt("source")
-		c.DelOpt("build-arg:BUILDKIT_SYNTAX")
+		c.DelOpt("cmdline", "source", "build-arg:BUILDKIT_SYNTAX")
 		c.SetOpt(buildcontext.KeyFilename, bc.Filename)
 		// c.SetOpt(config.KeyTarget, d.imports.Target)
-		client = c
+		return New(c)
 	}
 
 	return New(client)

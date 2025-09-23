@@ -58,7 +58,7 @@ type Client interface {
 type BuildOpts interface {
 	// WorkersInfo
 	SetOpt(key, value string) error
-	DelOpt(key string) error
+	DelOpt(key ...string) error
 	WithSession(string)
 	// AsProduct(string)
 	Caps() apicaps.CapSet

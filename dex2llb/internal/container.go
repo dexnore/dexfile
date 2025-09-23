@@ -65,7 +65,6 @@ func CreateContainer(ctx context.Context, c client.Client, execop *ExecOp, mount
 	return c.NewContainer(ctx, ctrReq)
 }
 
-
 func startProcess(ctx context.Context, ctr client.Container, execop *pb.ExecOp, stdout, stderr io.WriteCloser) (client.ContainerProcess, error) {
 	if execop == nil {
 		return nil, fmt.Errorf("failed to create ctr process %+v", execop)

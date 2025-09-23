@@ -500,9 +500,9 @@ func toCommand(ic converter.Command, allDispatchStates *dispatchStates) (command
 }
 
 type envMerger struct {
-	state *llb.State
+	state      *llb.State
 	env1, env2 shell.EnvGetter
-	once  sync.Once
+	once       sync.Once
 }
 
 func mergeEnv(state llb.State, meta shell.EnvGetter) shell.EnvGetter {

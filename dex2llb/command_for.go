@@ -62,7 +62,7 @@ func handleForLoop(ctx context.Context, d *dispatchState, cmd converter.CommandF
 	var (
 		stdout    = bytes.NewBuffer(nil)
 		stderr    = bytes.NewBuffer(nil)
-		execop *internal.ExecOp
+		execop    *internal.ExecOp
 		returnErr bool
 	)
 	switch exec := cmd.EXEC.(type) {
