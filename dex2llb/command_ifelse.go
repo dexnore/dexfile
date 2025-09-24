@@ -95,7 +95,8 @@ forloop:
 
 			def, err := ds.state.Marshal(ctx)
 			if err != nil {
-				return false, err
+				errs = errors.Join(parser.WithLocation(err, cond.Location()), errs)
+				continue forloop
 			}
 
 			execop, err = internal.MarshalToExecOp(def)
@@ -148,7 +149,8 @@ forloop:
 		case *converter.CommandExec:
 			def, err := ds.state.Marshal(ctx)
 			if err != nil {
-				return false, err
+				errs = errors.Join(parser.WithLocation(err, cond.Location()), errs)
+				continue forloop
 			}
 
 			res, err := opt.solver.Client().Solve(ctx, gwclient.SolveRequest{
@@ -247,9 +249,10 @@ forloop:
 				return false, err
 			}
 
-			def, err := bs.state.Marshal(ctx)
+			def, err := bs.state.Marshal(ctx, LocalCopts...)
 			if err != nil {
-				return false, err
+				errs = errors.Join(parser.WithLocation(err, cond.Location()), errs)
+				continue forloop
 			}
 
 			_, err = opt.solver.Client().Solve(ctx, gwclient.SolveRequest{

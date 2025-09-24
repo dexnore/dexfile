@@ -20,6 +20,7 @@ import (
 	"github.com/moby/buildkit/client/llb/sourceresolver"
 	"github.com/moby/buildkit/exporter/containerimage/exptypes"
 	"github.com/moby/buildkit/frontend/dockerfile/linter"
+	"github.com/moby/buildkit/frontend/gateway/client"
 	gwpb "github.com/moby/buildkit/frontend/gateway/pb"
 	"github.com/moby/buildkit/solver/pb"
 	"github.com/moby/buildkit/util/suggest"
@@ -206,20 +207,49 @@ func (s *stageResolver) resolve(ctx context.Context, all []*dispatchState, targe
 									}
 								}
 
-								d.state = llb.NewState(internal.NewOutput(importClient, frontendOpts, frontendInputs, pt, s.opt.Config.CacheImports))
-								imgI, err := d.state.Value(ctx, fmt.Sprintf("%s/%s", exptypes.ExporterImageConfigKey, pt))
+								res, err := s.opt.Client.Solve(ctx, client.SolveRequest{
+									Evaluate:       true,
+									Frontend:       "dockerfile.v0",
+									FrontendOpt:    frontendOpts,
+									FrontendInputs: frontendInputs,
+									CacheImports:   s.opt.Config.CacheImports,
+								})
 								if err != nil {
-									return err
+									d.state = llb.NewState(internal.NewSimpleOutput(nil, err))
+									d.image = emptyImage(tp)
+									baseImg := emptyImage(tp)
+									d.baseImg = &baseImg
+									d.platform = &tp
+									return nil
+								}
+						
+								ref, found := res.FindRef(pt)
+								if !found {
+									d.state = llb.NewState(internal.NewSimpleOutput(nil, fmt.Errorf("no import found with platform %s", pt)))
+									d.image = emptyImage(tp)
+									baseImg := emptyImage(tp)
+									d.baseImg = &baseImg
+									d.platform = &tp
+									return nil
+								}
+						
+								st, err := ref.ToState()
+								if err != nil {
+									d.state = llb.NewState(internal.NewSimpleOutput(nil, err))
+									d.image = emptyImage(tp)
+									baseImg := emptyImage(tp)
+									d.baseImg = &baseImg
+									d.platform = &tp
+									return nil
 								}
 
+								d.state = st
+								imgKey := fmt.Sprintf("%s/%s", exptypes.ExporterImageConfigKey, pt)
 								var imgBytes, baseImgBytes []byte
-								var ok bool
-								if imgBytes, ok = imgI.([]byte); !ok {
-									imgI, err := d.state.Value(ctx, exptypes.ExporterImageConfigKey)
-									if err != nil {
-										return err
-									}
-									imgBytes, _ = imgI.([]byte)
+								imgBytes = res.Metadata[imgKey]
+								if len(imgBytes) == 0 {
+									imgKey = exptypes.ExporterImageConfigKey
+									imgBytes = res.Metadata[imgKey]
 								}
 
 								var img *dockerspec.DockerOCIImage
@@ -228,26 +258,20 @@ func (s *stageResolver) resolve(ctx context.Context, all []*dispatchState, targe
 									img = &i
 								}
 								d.image = *img
-
-								baseImgI, err := d.state.Value(ctx, fmt.Sprintf("%s/%s", exptypes.ExporterImageBaseConfigKey, pt))
-								if err != nil {
-									return err
+						
+								baseImgKey := fmt.Sprintf("%s/%s", exptypes.ExporterImageBaseConfigKey, pt)
+								baseImgBytes = res.Metadata[baseImgKey]
+								if len(baseImgBytes) == 0 {
+									baseImgKey = exptypes.ExporterImageBaseConfigKey
+									baseImgBytes = res.Metadata[baseImgKey]
 								}
 
-								if baseImgBytes, ok = baseImgI.([]byte); !ok {
-									baseImgI, err := d.state.Value(ctx, exptypes.ExporterImageBaseConfigKey)
-									if err != nil {
-										return err
-									}
-									baseImgBytes, _ = baseImgI.([]byte)
-								}
 								var baseImg *dockerspec.DockerOCIImage
 								if err := json.Unmarshal(baseImgBytes, baseImg); err != nil {
 									baseImg = new(dockerspec.DockerOCIImage) // avoid nil pointer
 									*baseImg = emptyImage(tp)
 								}
 								d.baseImg = img
-
 								d.platform = &tp
 								return nil
 							}
