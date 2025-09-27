@@ -244,34 +244,30 @@ func (s *stageResolver) resolve(ctx context.Context, all []*dispatchState, targe
 								}
 
 								d.state = st
-								imgKey := fmt.Sprintf("%s/%s", exptypes.ExporterImageConfigKey, pt)
 								var imgBytes, baseImgBytes []byte
-								imgBytes = res.Metadata[imgKey]
-								if len(imgBytes) == 0 {
-									imgKey = exptypes.ExporterImageConfigKey
-									imgBytes = res.Metadata[imgKey]
+								imgBytes, ok := res.Metadata[fmt.Sprintf("%s/%s", exptypes.ExporterImageConfigKey, pt)]
+								if !ok {
+									imgBytes = res.Metadata[exptypes.ExporterImageConfigKey]
 								}
 
 								var img *dockerspec.DockerOCIImage
-								if err := json.Unmarshal(imgBytes, img); err != nil {
+								if err := json.Unmarshal(imgBytes, &img); err != nil {
 									i := emptyImage(tp)
 									img = &i
 								}
 								d.image = *img
 						
-								baseImgKey := fmt.Sprintf("%s/%s", exptypes.ExporterImageBaseConfigKey, pt)
-								baseImgBytes = res.Metadata[baseImgKey]
+								baseImgBytes = res.Metadata[fmt.Sprintf("%s/%s", exptypes.ExporterImageBaseConfigKey, pt)]
 								if len(baseImgBytes) == 0 {
-									baseImgKey = exptypes.ExporterImageBaseConfigKey
-									baseImgBytes = res.Metadata[baseImgKey]
+									baseImgBytes = res.Metadata[exptypes.ExporterImageBaseConfigKey]
 								}
 
 								var baseImg *dockerspec.DockerOCIImage
-								if err := json.Unmarshal(baseImgBytes, baseImg); err != nil {
+								if err := json.Unmarshal(baseImgBytes, &baseImg); err != nil {
 									baseImg = new(dockerspec.DockerOCIImage) // avoid nil pointer
 									*baseImg = emptyImage(tp)
 								}
-								d.baseImg = img
+								d.baseImg = baseImg
 								d.platform = &tp
 								return nil
 							}
