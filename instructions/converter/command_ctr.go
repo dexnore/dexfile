@@ -11,7 +11,7 @@ import (
 	"github.com/moby/buildkit/frontend/gateway/client"
 )
 
-type CommandConatainer struct {
+type CommandContainer struct {
 	withNameAndCode
 	From      string
 	as        string
@@ -19,7 +19,7 @@ type CommandConatainer struct {
 	Result    *client.Result
 	State     llb.State
 	Commands  []Command
-	parent    *CommandConatainer
+	parent    *CommandContainer
 	withExternalData
 }
 
@@ -32,11 +32,11 @@ type CommandProcess struct {
 	TimeOut     *time.Duration
 	RUN         RunCommand
 	From        string
-	InContainer CommandConatainer
+	InContainer CommandContainer
 }
 
-func (c *CommandConatainer) Clone() *CommandConatainer {
-	var parent *CommandConatainer
+func (c *CommandContainer) Clone() *CommandContainer {
+	var parent *CommandContainer
 	if c.parent != nil {
 		parent = c.parent.Clone()
 	}
@@ -46,7 +46,7 @@ func (c *CommandConatainer) Clone() *CommandConatainer {
 		result = c.Result.Clone()
 	}
 
-	return &CommandConatainer{
+	return &CommandContainer{
 		withNameAndCode: c.withNameAndCode,
 		as:              c.as,
 		parent:          parent,
@@ -58,22 +58,22 @@ func (c *CommandConatainer) Clone() *CommandConatainer {
 	}
 }
 
-func (c *CommandConatainer) Expand(expander SingleWordExpander) error {
+func (c *CommandContainer) Expand(expander SingleWordExpander) error {
 	if err := setMountState(&c.withExternalData, expander); err != nil {
 		return err
 	}
 	return nil
 }
 
-func (c *CommandConatainer) AddCommand(cmd Command) {
+func (c *CommandContainer) AddCommand(cmd Command) {
 	c.Commands = append(c.Commands, cmd)
 }
 
-func (c *CommandConatainer) ParentCtr(ctr *CommandConatainer) {
+func (c *CommandContainer) ParentCtr(ctr *CommandContainer) {
 	c.parent = ctr.Clone()
 }
 
-func (c *CommandConatainer) FindContainer(from string) (ctr *CommandConatainer, ok bool) {
+func (c *CommandContainer) FindContainer(from string) (ctr *CommandContainer, ok bool) {
 	if c.as == from {
 		return c, true
 	}
@@ -85,12 +85,12 @@ func (c *CommandConatainer) FindContainer(from string) (ctr *CommandConatainer, 
 	return c.parent.FindContainer(from)
 }
 
-func (c *CommandProcess) FindContainer(from string) (ctr *CommandConatainer, ok bool) {
+func (c *CommandProcess) FindContainer(from string) (ctr *CommandContainer, ok bool) {
 	return c.InContainer.FindContainer(from)
 }
 
-func parseCtr(req parseRequest) (ctr *CommandConatainer, err error) {
-	ctr = &CommandConatainer{withNameAndCode: newWithNameAndCode(req)}
+func parseCtr(req parseRequest) (ctr *CommandContainer, err error) {
+	ctr = &CommandContainer{withNameAndCode: newWithNameAndCode(req)}
 	ctr.as, ctr.From, err = parseCtrName(req.args)
 	if err != nil {
 		return nil, err

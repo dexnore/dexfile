@@ -23,7 +23,7 @@ var (
 	ARG_STDERR = dexfile.ScopedVariable("STDERR")
 )
 
-func dispatchCtr(ctx context.Context, d *dispatchState, ctr *converter.CommandConatainer, sources []*dispatchState, opt dispatchOpt, copts ...llb.ConstraintsOpt) (breakCmd bool, err error) {
+func dispatchCtr(ctx context.Context, d *dispatchState, ctr *converter.CommandContainer, sources []*dispatchState, opt dispatchOpt, copts ...llb.ConstraintsOpt) (breakCmd bool, err error) {
 	st := d.state
 	if ctr.From != "" {
 		st, err = containerState(ctr, opt.allDispatchStates)
@@ -187,7 +187,7 @@ func dispatchCtr(ctx context.Context, d *dispatchState, ctr *converter.CommandCo
 	return false, nil
 }
 
-func containerState(ctr *converter.CommandConatainer, ds *dispatchStates) (llb.State, error) {
+func containerState(ctr *converter.CommandContainer, ds *dispatchStates) (llb.State, error) {
 	return findState(ctr.From, ds)
 }
 

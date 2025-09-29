@@ -181,84 +181,67 @@ func TestNilLinterIfElse(t *testing.T) {
 # This Dockerfile uses Dexfile syntax. For more information, see:
 # https://github.com/dexnore/dexfile
 
-ARG GO_ENTRYPOINT=.
-ARG GO_OUTPUT_BIN_PATH=/dexfile-app
-ARG LD_FLAGS
-ARG BUILD_IMAGE \
-    RUN_IMAGE
+ARG BUILD_IMAGE RUN_IMAGE
 WORKDIR /home/dexfile/app
-CTR --mount=target=. base-img
-    IF PROC [ ! -f "go.mod" ]
-        RUN echo "no 'go.mod' file found in the project" >&2 && exit 1;
+CTR --mount=target=. py
+    PROC find . -type -f \( \
+            -name "requirements*.txt" -o \
+            -name "poetry.lock" -o \
+            -name "Pipfile.lock" -o \
+            -name "pdm.lock" -o \
+            -name "uv.lock" -o \
+            -name "environment.yml" -o \
+            -name "environment.yaml" -o \
+            -name "pyproject.toml" -o \
+            -name "setup.py" -o \
+            -name "setup.cfg" \
+        \) -print -quit | grep -q . || ( \
+            echo "Not a python project" >&2; \
+            exit 1; \
+        ) && echo "Python project detected"
+    
+    IF PROC VERSIONS="" \
+        if [ -f ".python-version" ]; then \
+            PYTHON_VERSION=$(cat .python-version | tr -d ' '); \
+            VERSIONS="$VERSIONS $PYTHON_VERSION"; fi; \
+        if [ -f "pyproject.toml" ]; then \
+            PYTHON_VERSION=$(grep -E "requires-python" pyproject.toml | sed 's/.*=//g' | tr -d '" '); \
+            VERSIONS="$VERSIONS $PYTHON_VERSION"; fi; \
+        if [ -f "setup.py" ]; then \
+            PYTHON_VERSION=$(grep -E "python_requires" setup.py | sed 's/.*=//g' | tr -d '" ,'); \
+            VERSIONS="$VERSIONS $PYTHON_VERSION"; fi; \
+        if [ -f "Pipfile" ]; then \
+            PYTHON_VERSION=$(grep -A1 "\[requires\]" Pipfile | grep "python_version" | sed 's/.*=//g' | tr -d '" '); \
+            VERSIONS="$VERSIONS $PYTHON_VERSION"; fi; \
+        if [ -f "requirements.txt" ]; then \
+            PYTHON_VERSION=$(grep -i "python" requirements.txt | awk '{print $NF}'); \
+            VERSIONS="$VERSIONS $PYTHON_VERSION"; fi; \
+        CLEANED=$(echo "$VERSIONS" | sed 's/[<>=!~]//g'); \
+        REQUIRED=$(echo "$CLEANED" | tr ' ' '\n' | grep -E '^[0-9]+\.[0-9]+' | sort -V | tail -n 1); \
+        [ -n "$REQUIRED" ] && echo "$REQUIRED-slim";
+        IF PROC [ -z "${BUILD_IMAGE}" ]
+            ARG BUILD_IMAGE=python:${STDOUT:-latest}
+        ENDIF
+
+        IF PROC [ -z "${RUN_IMAGE}" ]
+            ARG RUN_IMAGE=python:${STDOUT:-latest}-slim
+        ENDIF
     ENDIF
 ENDCTR
 
-FROM ${BUILD_IMAGE:-golang:latest} AS base
-WORKDIR /home/dexfile/app
+FROM ${BUILD_IMAGE:-python:latest} AS base
+
+FROM base AS deps
+
+FROM base AS installer
 
 FROM base AS builder
-COPY go.mod go.sum* /home/dexfile/app/
-IF RUN [ ! -f "go.sum" ]
-    RUN go mod tidy
-ENDIF
-RUN --mount=type=cache,target=/root/.cache,sharing=shared,id=dexfile-root-cache \
-    --mount=type=cache,target=/go/pkg/mod,sharing=shared,id=dexfile-mod-cache \
-    go mod download
 
-ARG GO_ENTRYPOINT=$GO_ENTRYPOINT
-ARG GO_OUTPUT_BIN_PATH=$GO_OUTPUT_BIN_PATH
-ARG LD_FLAGS=$LD_FLAGS
-RUN --mount=target=.,id=dexfile-app-src \
-    --mount=type=cache,target=/root/.cache,sharing=shared,id=dexfile-root-cache \
-    --mount=type=cache,target=/go/pkg/mod,sharing=shared,id=dexfile-mod-cache \
-    set -euo pipefail && \
-    echo "Trying build from GO_ENTRYPOINT=$GO_ENTRYPOINT" && \
-    if CGO_ENABLED=0 go build \
-        -ldflags="$LD_FLAGS" \
-        -tags "osusergo netgo static_build" \
-        -o "$GO_OUTPUT_BIN_PATH" \
-        "$GO_ENTRYPOINT"; then \
-        echo "Build succeeded from GO_ENTRYPOINT"; \
-    else \
-        echo "Build from GO_ENTRYPOINT failed, detecting main package dynamically..." >&2 && \
-        MAIN_DIRS=$(find . -type f -name '*.go' \
-            ! -name '*_test.go' \
-            ! -path './vendor/*' \
-            -exec grep -q '^package main' {} \; \
-            -exec grep -q '^func main\s*(' {} \; \
-            -print \
-            | xargs -r -n1 dirname | sort -u) && \
-        COUNT=$(echo "$MAIN_DIRS" | grep -c . || true) && \
-        if [ "$COUNT" -eq 0 ]; then \
-            echo "No main package found, build failed" >&2 && exit 1; \
-        elif [ "$COUNT" -gt 1 ]; then \
-            echo "Error: multiple main package directories found:" >&2 && \
-            echo "$MAIN_DIRS" >&2 && \
-            echo "Please set GO_ENTRYPOINT explicitly via build args." >&2 && \
-            exit 1; \
-        else \
-            MAIN_DIR=$(echo "$MAIN_DIRS") && \
-            echo "Detected main dir: $MAIN_DIR" && \
-            CGO_ENABLED=0 go build \
-                -ldflags="$LD_FLAGS" \
-                -tags "osusergo netgo static_build" \
-                -o "$GO_OUTPUT_BIN_PATH" \
-                "$MAIN_DIR"; \
-        fi; \
-    fi
+FROM ${RUN_IMAGE:-scratch} AS app
 
-
-FROM ${RUN_IMAGE:-alpine:latest} AS prod
-WORKDIR /home/dexfile/app
-ARG GO_OUTPUT_BIN_PATH=$GO_OUTPUT_BIN_PATH
-COPY --from=builder $GO_OUTPUT_BIN_PATH ./dexfile-app
+FROM app AS prod
 
 FROM prod AS release
-ENTRYPOINT [ "/home/dexfile/app/dexfile-app" ]
-EXPOSE 3000
-LABEL maintainer="@dexnore/dexfile"
-LABEL moby.buildkit.frontend.network.none="true"
-LABEL moby.buildkit.frontend.caps="moby.buildkit.frontend.inputs,moby.buildkit.frontend.subrequests,moby.buildkit.frontend.contexts"
 
 FROM release
 		`))

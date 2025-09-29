@@ -472,7 +472,7 @@ func toCommand(ic converter.Command, allDispatchStates *dispatchStates) (command
 	}
 
 	detectRunMount(&cmd, allDispatchStates)
-	if c, ok := ic.(*converter.CommandConatainer); ok {
+	if c, ok := ic.(*converter.CommandContainer); ok {
 		if c.From != "" {
 			var stn *dispatchState
 			index, err := strconv.Atoi(c.From)
@@ -481,6 +481,77 @@ func toCommand(ic converter.Command, allDispatchStates *dispatchStates) (command
 				if !ok {
 					stn = &dispatchState{
 						stage:        converter.Stage{BaseName: c.From, Loc: c.Location()},
+						deps:         make(map[*dispatchState]converter.Command),
+						paths:        make(map[string]struct{}),
+						unregistered: true,
+					}
+				}
+			} else {
+				stn, err = allDispatchStates.findStateByIndex(index)
+				if err != nil {
+					return command{}, err
+				}
+			}
+			cmd.sources = append(cmd.sources, stn)
+		}
+	}
+
+	if c, ok := ic.(*converter.CommandExec); ok {
+		ic, err := toCommand(c.RUN, allDispatchStates)
+		if err != nil {
+			return command{}, err
+		}
+		cmd.sources = append(cmd.sources, ic.sources...)
+	}
+
+	if c, ok := ic.(*converter.CommandFor); ok {
+		ic, err := toCommand(c.EXEC, allDispatchStates)
+		if err != nil {
+			return command{}, err
+		}
+		cmd.sources = append(cmd.sources, ic.sources...)
+	}
+
+	if c, ok := ic.(*converter.ConditionIfElse); ok {
+		ic, err := toCommand(c.ConditionIF, allDispatchStates)
+		if err != nil {
+			return command{}, err
+		}
+		cmd.sources = append(cmd.sources, ic.sources...)
+		for _, elsecmd := range c.ConditionElse {
+			ic, err := toCommand(elsecmd, allDispatchStates)
+			if err != nil {
+				return command{}, err
+			}
+			cmd.sources = append(cmd.sources, ic.sources...)
+		}
+	}
+
+	if c, ok := ic.(*converter.ConditionElse); ok {
+		ic, err := toCommand(c.Condition, allDispatchStates)
+		if err != nil {
+			return command{}, err
+		}
+		cmd.sources = append(cmd.sources, ic.sources...)
+	}
+
+	if c, ok := ic.(*converter.ConditionIF); ok {
+		ic, err := toCommand(c.Condition, allDispatchStates)
+		if err != nil {
+			return command{}, err
+		}
+		cmd.sources = append(cmd.sources, ic.sources...)
+	}
+
+	if c, ok := ic.(*converter.CommandBuild); ok {
+		if c.Stage != "" {
+			var stn *dispatchState
+			index, err := strconv.Atoi(c.Stage)
+			if err != nil {
+				stn, ok = allDispatchStates.findStateByName(c.Stage)
+				if !ok {
+					stn = &dispatchState{
+						stage:        converter.Stage{BaseName: c.Stage, Loc: c.Location()},
 						deps:         make(map[*dispatchState]converter.Command),
 						paths:        make(map[string]struct{}),
 						unregistered: true,
