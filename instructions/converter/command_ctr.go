@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/distribution/reference"
 	"github.com/moby/buildkit/client/llb"
 	"github.com/moby/buildkit/frontend/gateway/client"
 )
@@ -117,8 +118,8 @@ func parseCtrName(args []string) (as, from string, err error) {
 	switch {
 	case len(args) == 3 && strings.EqualFold(args[1], "from"):
 		from = strings.ToLower(args[2])
-		if !validStageName.MatchString(from) {
-			return "", "", fmt.Errorf("invalid 'from' for container: %q, name can't start with a number or contain symbols", args[2])
+		if _, err := reference.Parse(from); err != nil {
+			return "", "", fmt.Errorf("invalid 'from' for container: %q, name can't start with a number or contain symbols\n%w", args[2], err)
 		}
 	case len(args) != 1:
 		return "", "", fmt.Errorf("FROM requires either one or three arguments")

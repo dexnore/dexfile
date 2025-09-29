@@ -216,25 +216,18 @@ func Parse(ast *parser.Node, lint *linter.Linter) (stages []Adder, metaCmds []Co
 
 		switch c := cmd.(type) {
 		case *Stage:
-			stages = append(stages, c) // Add the new stage
+			stages = append(stages, c)
 		case *ImportCommand:
-			stages = append(stages, c) // Add the new stage
+			stages = append(stages, c)
 		case *Function:
-			if c.Action != nil {
-				// Ensure there's an active stage to attach the command to
-				if stageErr != nil {
-					return nil, nil, parser.WithLocation(stageErr, n.Location())
-				}
-				currentActiveStage.AddCommand(c)
-				continue
-			}
-			// Ensure there's an active stage to attach the conditional block to
 			if stageErr != nil {
 				return nil, nil, parser.WithLocation(stageErr, n.Location())
 			}
+			if c.Action != nil {
+				currentActiveStage.AddCommand(c)
+				continue
+			}
 
-			// Parse the if/else block using ParseScoped
-			// Pass the remainder of the AST starting from the current node 'n' (which is the 'if' keyword)
 			blockNode := &parser.Node{Children: ast.Children[i:]}
 			funcBlock, consumedNodes, parseScopedErr := ParseFunction(blockNode, lint)
 			if parseScopedErr != nil {
@@ -242,19 +235,12 @@ func Parse(ast *parser.Node, lint *linter.Linter) (stages []Adder, metaCmds []Co
 			}
 
 			metaCmds = append(metaCmds, funcBlock)
-
-			// Adjust the loop index. ParseScoped consumed 'consumedNodes' from its input (which started at 'i').
-			// The for loop will automatically increment 'i' by 1 at the end of this iteration,
-			// so we need to advance 'i' by (consumedNodes - 1).
 			i += consumedNodes
 		case *CommandConatainer:
-			// Ensure there's an active stage to attach the conditional block to
 			if stageErr != nil {
 				return nil, nil, parser.WithLocation(stageErr, n.Location())
 			}
 
-			// Parse the if/else block using ParseScoped
-			// Pass the remainder of the AST starting from the current node 'n' (which is the 'if' keyword)
 			blockNode := &parser.Node{Children: ast.Children[i:]}
 			ctrBlock, consumedNodes, parseScopedErr := ParseContainer(blockNode, lint)
 			if parseScopedErr != nil {
@@ -262,19 +248,12 @@ func Parse(ast *parser.Node, lint *linter.Linter) (stages []Adder, metaCmds []Co
 			}
 
 			currentActiveStage.AddCommand(ctrBlock)
-
-			// Adjust the loop index. ParseScoped consumed 'consumedNodes' from its input (which started at 'i').
-			// The for loop will automatically increment 'i' by 1 at the end of this iteration,
-			// so we need to advance 'i' by (consumedNodes - 1).
 			i += consumedNodes
 		case *CommandFor:
-			// Ensure there's an active stage to attach the conditional block to
 			if stageErr != nil {
 				return nil, nil, parser.WithLocation(stageErr, n.Location())
 			}
 
-			// Parse the if/else block using ParseScoped
-			// Pass the remainder of the AST starting from the current node 'n' (which is the 'if' keyword)
 			blockNode := &parser.Node{Children: ast.Children[i:]}
 			forBlock, consumedNodes, parseScopedErr := ParseLoop(blockNode, lint)
 			if parseScopedErr != nil {
@@ -283,18 +262,12 @@ func Parse(ast *parser.Node, lint *linter.Linter) (stages []Adder, metaCmds []Co
 
 			currentActiveStage.AddCommand(forBlock)
 
-			// Adjust the loop index. ParseScoped consumed 'consumedNodes' from its input (which started at 'i').
-			// The for loop will automatically increment 'i' by 1 at the end of this iteration,
-			// so we need to advance 'i' by (consumedNodes - 1).
 			i += consumedNodes
 		case *ConditionIF:
-			// Ensure there's an active stage to attach the conditional block to
 			if stageErr != nil {
 				return nil, nil, parser.WithLocation(stageErr, n.Location())
 			}
 
-			// Parse the if/else block using ParseScoped
-			// Pass the remainder of the AST starting from the current node 'n' (which is the 'if' keyword)
 			blockNode := &parser.Node{Children: ast.Children[i:]}
 			condBlock, consumedNodes, parseScopedErr := ParseConditional(blockNode, lint)
 			if parseScopedErr != nil {
@@ -303,26 +276,19 @@ func Parse(ast *parser.Node, lint *linter.Linter) (stages []Adder, metaCmds []Co
 
 			currentActiveStage.AddCommand(condBlock)
 
-			// Adjust the loop index. ParseScoped consumed 'consumedNodes' from its input (which started at 'i').
-			// The for loop will automatically increment 'i' by 1 at the end of this iteration,
-			// so we need to advance 'i' by (consumedNodes - 1).
 			i += consumedNodes
 		case *ConditionElse, *EndIf, *CommandEndFor, *EndContainer, *EndFunction:
-			// STRICT REQUIREMENT: These are handled internally by ParseScoped and
-			// should NOT be encountered at the top level of the dexfile parsing.
 			printstmt := fmt.Sprintf("%T", cmd)
 			if cmd, ok := cmd.(Command); ok {
 				printstmt = cmd.Name()
 			}
 			return nil, nil, parser.WithLocation(errors.Errorf("syntax error: unexpected %s at top level", printstmt), n.Location())
 		case Command:
-			// Ensure there's an active stage to attach the command to
 			if stageErr != nil {
 				return nil, nil, parser.WithLocation(stageErr, n.Location())
 			}
 			currentActiveStage.AddCommand(c)
 		default:
-			// Catch any other unexpected instruction types
 			return nil, nil, parser.WithLocation(errors.Errorf("%+v is an unrecognized top-level instruction", cmd), n.Location())
 		}
 	}
@@ -357,8 +323,7 @@ func ParseConditional(ast *parser.Node, lint *linter.Linter) (cond *ConditionIfE
 	default:
 		return nil, 0, parser.WithLocation(errors.Errorf("conditional block error: block must start with an 'if' instruction, got %T", firstInstruction), firstInstructionNode.Location())
 	}
-	i = 1 // Start parsing children from the second node (after the initial IF keyword)
-	for i < len(ast.Children) {
+	for i = 1; i < len(ast.Children); i++ {
 		n := ast.Children[i]
 		cmd, err := ParseInstructionWithLinter(n, lint)
 		if err != nil {
@@ -367,8 +332,6 @@ func ParseConditional(ast *parser.Node, lint *linter.Linter) (cond *ConditionIfE
 
 		switch c := cmd.(type) {
 		case *ConditionIF: // Nested IF/ELSE block
-			// The current node 'n' (which is the nested 'if') starts the nested block.
-			// Pass the remaining children from the current index onwards to the recursive call.
 			blockNode := &parser.Node{Children: ast.Children[i:]}
 			nestedCond, consumed, err := ParseConditional(blockNode, lint)
 			if err != nil {
@@ -382,11 +345,10 @@ func ParseConditional(ast *parser.Node, lint *linter.Linter) (cond *ConditionIfE
 				return nil, i, parser.WithLocation(err, n.Location())
 			}
 			i += consumed // Advance index by the number of nodes consumed by the nested ParseScoped call
-			continue      // Skip i++ at end of loop, as 'i' has already been updated
 		case *ConditionElse: // Encountered an 'else' keyword
 			// Close the previous 'else' block if one was open
 			if err := currentCond.EndBlock(); err != nil {
-				return nil, i, err
+				return nil, i, parser.WithLocation(err, n.Location())
 			}
 
 			// Initialize a new currentElse block
@@ -399,15 +361,6 @@ func ParseConditional(ast *parser.Node, lint *linter.Linter) (cond *ConditionIfE
 					cond.code += fmt.Sprintf("\n\t%s", str)
 				}
 			}
-		case *EndIf: // Encountered an 'endif' keyword
-			// Close the current 'else' block if one was open
-			if err := currentCond.EndBlock(); err != nil {
-				return nil, i, err
-			}
-			for _, str := range strings.Split(c.String(), "\n") {
-				cond.code += fmt.Sprintf("\n%s", str)
-			}
-			return cond, i, nil // Return, consuming the EndIf instruction (+1)
 		case *CommandConatainer:
 			ctrBlock := &parser.Node{Children: ast.Children[i:]}
 			ctrcmd, consumed, err := ParseContainer(ctrBlock, lint)
@@ -457,6 +410,14 @@ func ParseConditional(ast *parser.Node, lint *linter.Linter) (cond *ConditionIfE
 				printstmt = cmd.Name()
 			}
 			return nil, i, parser.WithLocation(errors.Errorf("syntax error: unexpected %s at top level", printstmt), n.Location())
+		case *EndIf: // Encountered an 'endif' keyword
+			if err := currentCond.EndBlock(); err != nil {
+				return nil, i, parser.WithLocation(err, n.Location())
+			}
+			for _, str := range strings.Split(c.String(), "\n") {
+				cond.code += fmt.Sprintf("\n%s", str)
+			}
+			return cond, i, nil
 		case Command:
 			if err := currentCond.AddCommand(c); err != nil {
 				return nil, i, parser.WithLocation(err, n.Location())
@@ -468,11 +429,9 @@ func ParseConditional(ast *parser.Node, lint *linter.Linter) (cond *ConditionIfE
 			} else {
 				cond.code += fmt.Sprintf("\n\t%s %s", c.Name(), "<unknown command>")
 			}
-			// return cond, i, fmt.Errorf("%+v", printStr(ast.Children[i+1:]...))
 		default:
 			return nil, i, parser.WithLocation(errors.Errorf("%T is not a recognized instruction type for if/else blocks", cmd), n.Location())
 		}
-		i++ // Move to the next instruction
 	}
 
 	// All blocks must be explicitly closed by now.
@@ -487,7 +446,6 @@ func ParseConditional(ast *parser.Node, lint *linter.Linter) (cond *ConditionIfE
 // ParseLoop is the main function to parse the conditional block
 func ParseLoop(ast *parser.Node, lint *linter.Linter) (forcmd *CommandFor, i int, err error) {
 	forcmd = &CommandFor{}
-	// A conditional block MUST start with an IF command.
 	if len(ast.Children) == 0 {
 		return nil, 0, errors.New("FOR block error: expected 'for' instruction")
 	}
@@ -502,8 +460,7 @@ func ParseLoop(ast *parser.Node, lint *linter.Linter) (forcmd *CommandFor, i int
 	} else {
 		forcmd = v
 	}
-	i = 1 // Start parsing children from the second node (after the initial IF keyword)
-	for i < len(ast.Children) {
+	for i = 1; i < len(ast.Children); i++ {
 		n := ast.Children[i]
 		cmd, err := ParseInstructionWithLinter(n, lint)
 		if err != nil {
@@ -511,9 +468,7 @@ func ParseLoop(ast *parser.Node, lint *linter.Linter) (forcmd *CommandFor, i int
 		}
 
 		switch c := cmd.(type) {
-		case *CommandFor: // Nested IF/ELSE block
-			// The current node 'n' (which is the nested 'if') starts the nested block.
-			// Pass the remaining children from the current index onwards to the recursive call.
+		case *CommandFor: // Nested FOR block
 			blockNode := &parser.Node{Children: ast.Children[i:]}
 			nestedFor, consumed, err := ParseLoop(blockNode, lint)
 			if err != nil {
@@ -524,10 +479,6 @@ func ParseLoop(ast *parser.Node, lint *linter.Linter) (forcmd *CommandFor, i int
 			}
 			forcmd.AddCommand(nestedFor)
 			i += consumed // Advance index by the number of nodes consumed by the nested ParseScoped call
-			continue      // Skip i++ at end of loop, as 'i' has already been updated
-		case *CommandEndFor: // Encountered an 'endif' keyword
-			forcmd.code += fmt.Sprintf("\n%s", c.String())
-			return forcmd, i, nil // Return, consuming the EndIf instruction (+1)
 		case *CommandConatainer:
 			ctrBlock := &parser.Node{Children: ast.Children[i:]}
 			ctrcmd, consumed, err := ParseContainer(ctrBlock, lint)
@@ -562,13 +513,14 @@ func ParseLoop(ast *parser.Node, lint *linter.Linter) (forcmd *CommandFor, i int
 			forcmd.AddCommand(fun)
 			i += consumed // Advance index by the number of nodes consumed by the nested ParseScoped call
 		case *ConditionElse, *EndIf, *EndContainer, *EndFunction:
-			// STRICT REQUIREMENT: These are handled internally by ParseScoped and
-			// should NOT be encountered at the top level of the dexfile parsing.
 			printstmt := fmt.Sprintf("%T", cmd)
 			if cmd, ok := cmd.(Command); ok {
 				printstmt = cmd.Name()
 			}
 			return nil, i, parser.WithLocation(errors.Errorf("syntax error: unexpected %s at top level", printstmt), n.Location())
+		case *CommandEndFor: // Encountered an 'endfor' keyword
+			forcmd.code += fmt.Sprintf("\n%s", c.String())
+			return forcmd, i, nil // Return, consuming the EndIf instruction (+1)
 		case Command:
 			if stringer, ok := c.(fmt.Stringer); ok {
 				for _, str := range strings.Split(stringer.String(), "\n") {
@@ -581,7 +533,6 @@ func ParseLoop(ast *parser.Node, lint *linter.Linter) (forcmd *CommandFor, i int
 		default:
 			return nil, i, parser.WithLocation(errors.Errorf("%T is not a recognized instruction type for 'for' blocks", cmd), n.Location())
 		}
-		i++ // Move to the next instruction
 	}
 
 	return forcmd, i, parser.WithLocation(errors.Errorf("FOR block error: no end token found"), ast.Children[len(ast.Children)-1].Location())
@@ -590,7 +541,6 @@ func ParseLoop(ast *parser.Node, lint *linter.Linter) (forcmd *CommandFor, i int
 // ParseLoop is the main function to parse the conditional block
 func ParseContainer(ast *parser.Node, lint *linter.Linter) (ctrcmd *CommandConatainer, i int, err error) {
 	ctrcmd = &CommandConatainer{}
-	// A conditional block MUST start with an IF command.
 	if len(ast.Children) == 0 {
 		return nil, 0, errors.New("CTR block error: expected 'ctr' instruction")
 	}
@@ -605,8 +555,7 @@ func ParseContainer(ast *parser.Node, lint *linter.Linter) (ctrcmd *CommandConat
 	} else {
 		ctrcmd = v
 	}
-	i = 1 // Start parsing children from the second node (after the initial IF keyword)
-	for i < len(ast.Children) {
+	for i = 1; i < len(ast.Children); i++ {
 		n := ast.Children[i]
 		cmd, err := ParseInstructionWithLinter(n, lint)
 		if err != nil {
@@ -614,9 +563,7 @@ func ParseContainer(ast *parser.Node, lint *linter.Linter) (ctrcmd *CommandConat
 		}
 
 		switch c := cmd.(type) {
-		case *CommandConatainer: // Nested IF/ELSE block
-			// The current node 'n' (which is the nested 'if') starts the nested block.
-			// Pass the remaining children from the current index onwards to the recursive call.
+		case *CommandConatainer: // Nested CTR block
 			blockNode := &parser.Node{Children: ast.Children[i:]}
 			nestedCtr, consumed, err := ParseContainer(blockNode, lint)
 			if err != nil {
@@ -628,7 +575,6 @@ func ParseContainer(ast *parser.Node, lint *linter.Linter) (ctrcmd *CommandConat
 			nestedCtr.ParentCtr(ctrcmd)
 			ctrcmd.AddCommand(nestedCtr)
 			i += consumed // Advance index by the number of nodes consumed by the nested ParseScoped call
-			continue      // Skip i++ at end of loop, as 'i' has already been updated
 		case *EndContainer: // Encountered an 'endif' keyword
 			for _, str := range strings.Split(c.String(), "\n") {
 				ctrcmd.code += fmt.Sprintf("\n%s", str)
@@ -674,8 +620,6 @@ func ParseContainer(ast *parser.Node, lint *linter.Linter) (ctrcmd *CommandConat
 			ctrcmd.AddCommand(fun)
 			i += consumed // Advance index by the number of nodes consumed by the nested ParseScoped call
 		case *ConditionElse, *EndIf, *CommandEndFor, *EndFunction:
-			// STRICT REQUIREMENT: These are handled internally by ParseScoped and
-			// should NOT be encountered at the top level of the dexfile parsing.
 			printstmt := fmt.Sprintf("%T", cmd)
 			if cmd, ok := cmd.(Command); ok {
 				printstmt = cmd.Name()
@@ -693,7 +637,6 @@ func ParseContainer(ast *parser.Node, lint *linter.Linter) (ctrcmd *CommandConat
 		default:
 			return nil, i, parser.WithLocation(errors.Errorf("%T is not a recognized instruction type for 'ctr' blocks", cmd), n.Location())
 		}
-		i++ // Move to the next instruction
 	}
 
 	return ctrcmd, i, parser.WithLocation(errors.Errorf("CTR block error: no end token found"), ast.Children[len(ast.Children)-1].Location())
@@ -702,7 +645,6 @@ func ParseContainer(ast *parser.Node, lint *linter.Linter) (ctrcmd *CommandConat
 // ParseLoop is the main function to parse the conditional block
 func ParseFunction(ast *parser.Node, lint *linter.Linter) (fun *Function, i int, err error) {
 	fun = &Function{}
-	// A Function block MUST start with an FUNC command.
 	if len(ast.Children) == 0 {
 		return nil, 0, errors.New("Function block error: expected 'func' instruction")
 	}
@@ -721,8 +663,7 @@ func ParseFunction(ast *parser.Node, lint *linter.Linter) (fun *Function, i int,
 	default:
 		return nil, 0, parser.WithLocation(errors.Errorf("FUNC block error: block must start with a 'func' instruction, got %T", firstInstruction), firstInstructionNode.Location())
 	}
-	i = 1 // Start parsing children from the second node (after the initial IF keyword)
-	for i < len(ast.Children) {
+	for i = 1; i < len(ast.Children); i++ {
 		n := ast.Children[i]
 		cmd, err := ParseInstructionWithLinter(n, lint)
 		if err != nil {
@@ -730,9 +671,7 @@ func ParseFunction(ast *parser.Node, lint *linter.Linter) (fun *Function, i int,
 		}
 
 		switch c := cmd.(type) {
-		case *Function: // Nested IF/ELSE block
-			// The current node 'n' (which is the nested 'if') starts the nested block.
-			// Pass the remaining children from the current index onwards to the recursive call.
+		case *Function: // Nested FUNC block
 			blockNode := &parser.Node{Children: ast.Children[i:]}
 			nestedFor, consumed, err := ParseFunction(blockNode, lint)
 			if err != nil {
@@ -743,7 +682,6 @@ func ParseFunction(ast *parser.Node, lint *linter.Linter) (fun *Function, i int,
 			}
 			fun.AddCommand(nestedFor)
 			i += consumed // Advance index by the number of nodes consumed by the nested ParseScoped call
-			continue      // Skip i++ at end of loop, as 'i' has already been updated
 		case *EndFunction: // Encountered an 'endfunc' keyword
 			for _, str := range strings.Split(c.String(), "\n") {
 				fun.code += fmt.Sprintf("\n%s", str)
@@ -783,8 +721,6 @@ func ParseFunction(ast *parser.Node, lint *linter.Linter) (fun *Function, i int,
 			fun.AddCommand(forcmd)
 			i += consumed // Advance index by the number of nodes consumed by the nested ParseScoped call
 		case *ConditionElse, *EndIf, *CommandEndFor, *EndContainer:
-			// STRICT REQUIREMENT: These are handled internally by ParseScoped and
-			// should NOT be encountered at the top level of the dexfile parsing.
 			printstmt := fmt.Sprintf("%T", cmd)
 			if cmd, ok := cmd.(Command); ok {
 				printstmt = cmd.Name()
@@ -802,7 +738,6 @@ func ParseFunction(ast *parser.Node, lint *linter.Linter) (fun *Function, i int,
 		default:
 			return nil, i, parser.WithLocation(errors.Errorf("%T is not a recognized instruction type for 'func' blocks", cmd), n.Location())
 		}
-		i++ // Move to the next instruction
 	}
 
 	return fun, i, parser.WithLocation(errors.Errorf("FUNC block error: no end token found"), ast.Children[len(ast.Children)-1].Location())
