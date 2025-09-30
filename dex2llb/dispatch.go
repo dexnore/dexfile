@@ -123,9 +123,6 @@ func dispatch(ctx context.Context, d *dispatchState, cmd command, opt dispatchOp
 		return false, err
 	case *converter.CommandExec:
 		var res = c.Result
-		if err := dispatchScopedState(ctx, c, opt.mutableBuildContextOutput, opt, copts...); err != nil {
-			return false, err
-		}
 		if c.Result == nil {
 			def, err := d.state.Marshal(ctx, copts...)
 			if err != nil {
@@ -143,9 +140,6 @@ func dispatch(ctx context.Context, d *dispatchState, cmd command, opt dispatchOp
 		}
 		return false, dispatchExec(ctx, d, *c, res, opt, copts...)
 	case *converter.ConditionIfElse:
-		if err := dispatchScopedState(ctx, c, opt.mutableBuildContextOutput, opt, copts...); err != nil {
-			return false, err
-		}
 		return handleIfElse(ctx, d, *c, func(nc []converter.Command, copts ...llb.ConstraintsOpt) (bool, error) {
 			for _, cmd := range nc {
 				ic, err := toCommand(cmd, opt.allDispatchStates)
@@ -154,9 +148,6 @@ func dispatch(ctx context.Context, d *dispatchState, cmd command, opt dispatchOp
 				}
 				var breakCmd bool
 				
-				if err := dispatchScopedState(ctx, cmd, opt.mutableBuildContextOutput, opt, copts...); err != nil {
-					return false, err
-				}
 				if breakCmd, err = dispatch(ctx, d, ic, opt, copts...); err != nil {
 					return breakCmd, parser.WithLocation(err, cmd.Location())
 				}
@@ -167,9 +158,6 @@ func dispatch(ctx context.Context, d *dispatchState, cmd command, opt dispatchOp
 			return false, nil
 		}, opt, copts...)
 	case *converter.CommandFor:
-		if err := dispatchScopedState(ctx, c, opt.mutableBuildContextOutput, opt, copts...); err != nil {
-			return false, err
-		}
 		return handleForLoop(ctx, d, *c, func(nc []converter.Command, copts ...llb.ConstraintsOpt) (bool, error) {
 			for _, cmd := range nc {
 				cmd, err := toCommand(cmd, opt.allDispatchStates)
@@ -177,9 +165,6 @@ func dispatch(ctx context.Context, d *dispatchState, cmd command, opt dispatchOp
 					return false, parser.WithLocation(err, cmd.Location())
 				}
 
-				if err := dispatchScopedState(ctx, cmd, opt.mutableBuildContextOutput, opt, copts...); err != nil {
-					return false, err
-				}
 				if breakCmd, err = dispatch(ctx, d, cmd, opt, copts...); err != nil {
 					return breakCmd, parser.WithLocation(err, cmd.Location())
 				}
@@ -190,21 +175,10 @@ func dispatch(ctx context.Context, d *dispatchState, cmd command, opt dispatchOp
 			return false, nil
 		}, opt, copts...)
 	case *converter.CommandContainer:
-		if err := dispatchScopedState(ctx, c, opt.mutableBuildContextOutput, opt, copts...); err != nil {
-			return false, err
-		}
 		return dispatchCtr(ctx, d, c, cmd.sources, opt, copts...)
 	case *converter.Function:
-		for _, ic := range c.Commands {
-			if err := dispatchScopedState(ctx, ic, opt.mutableBuildContextOutput, opt, copts...); err != nil {
-				return false, err
-			}
-		}
 		return dispatchFunction(ctx, d, *c, opt, copts...)
 	case *converter.CommandBuild:
-		if err := dispatchScopedState(ctx, c, opt.mutableBuildContextOutput, opt, copts...); err != nil {
-			return false, err
-		}
 		ds, err := dispatchBuild(ctx, *c, opt, copts...)
 		if err != nil {
 			return true, err
@@ -265,20 +239,5 @@ func dispatcherExpand(d *dispatchState, cmd command, opt dispatchOpt) error {
 		}
 	}
 
-	return nil
-}
-
-func dispatchScopedState(ctx context.Context, cmd converter.Command, buildContext *mutableDexfileOutput, opt dispatchOpt, copts ...llb.ConstraintsOpt) error {
-	ic, err := toCommand(cmd, opt.allDispatchStates)
-	if err != nil {
-		return err
-	}
-
-	for _, c := range ic.sources {
-		_, _, err := solveStage(ctx, c, buildContext, opt, copts...)
-		if err != nil {
-			return err
-		}
-	}
 	return nil
 }
