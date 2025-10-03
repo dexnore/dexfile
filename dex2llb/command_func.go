@@ -52,7 +52,7 @@ func handleFunctionCall(ctx context.Context, cmd converter.Function, d *dispatch
 			return false, err
 		}
 		for i, s := range ic.sources {
-			is, _, err := solveStage(ctx, s, opt.mutableBuildContextOutput, opt, copts...)
+			is, _, _, err := solveDispatchableStages(ctx, s, opt, copts...)
 			if err != nil {
 				return true, err
 			}

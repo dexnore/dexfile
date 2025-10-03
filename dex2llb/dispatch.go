@@ -149,7 +149,7 @@ func dispatch(ctx context.Context, d *dispatchState, cmd command, opt dispatchOp
 				var breakCmd bool
 				
 				for i, s := range ic.sources {
-					is, _, err := solveStage(ctx, s, opt.mutableBuildContextOutput, opt, copts...)
+					is, _, _, err := solveDispatchableStages(ctx, s, opt, copts...)
 					if err != nil {
 						return true, err
 					}
@@ -173,7 +173,7 @@ func dispatch(ctx context.Context, d *dispatchState, cmd command, opt dispatchOp
 				}
 
 				for i, s := range cmd.sources {
-					is, _, err := solveStage(ctx, s, opt.mutableBuildContextOutput, opt, copts...)
+					is, _, _, err := solveDispatchableStages(ctx, s, opt, copts...)
 					if err != nil {
 						return true, err
 					}

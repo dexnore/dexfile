@@ -691,9 +691,6 @@ func dispatchArg(d *dispatchState, c *converter.ArgCommand, opt *dispatchOpt, _ 
 	commitStrs := make([]string, 0, len(c.Args))
 	usedBuildArgs := make(map[string]struct{}, len(opt.buildArgValues))
 	for _, arg := range c.Args {
-		// if arg.Key == "GO_ENTRY" {
-		// 	return fmt.Errorf("%+v\n%+v", arg.ValueString(), )
-		// }
 		validateNoSecretKey("ARG", arg.Key, c.Location(), opt.lint)
 		_, hasValue := opt.buildArgValues[arg.Key]
 		hasDefault := arg.Value != nil

@@ -176,7 +176,7 @@ func dispatchCtr(ctx context.Context, d *dispatchState, ctr *converter.CommandCo
 				return false, parser.WithLocation(err, cmd.Location())
 			}
 			for i, s := range dc.sources {
-				is, _, err := solveStage(ctx, s, opt.mutableBuildContextOutput, opt, copts...)
+				is, _, _, err := solveDispatchableStages(ctx, s, opt, copts...)
 				if err != nil {
 					return true, err
 				}
