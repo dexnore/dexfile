@@ -148,6 +148,13 @@ func dispatch(ctx context.Context, d *dispatchState, cmd command, opt dispatchOp
 				}
 				var breakCmd bool
 				
+				for i, s := range ic.sources {
+					is, _, err := solveStage(ctx, s, opt.mutableBuildContextOutput, opt, copts...)
+					if err != nil {
+						return true, err
+					}
+					ic.sources[i] = is
+				}
 				if breakCmd, err = dispatch(ctx, d, ic, opt, copts...); err != nil {
 					return breakCmd, parser.WithLocation(err, cmd.Location())
 				}
@@ -163,6 +170,14 @@ func dispatch(ctx context.Context, d *dispatchState, cmd command, opt dispatchOp
 				cmd, err := toCommand(cmd, opt.allDispatchStates)
 				if err != nil {
 					return false, parser.WithLocation(err, cmd.Location())
+				}
+
+				for i, s := range cmd.sources {
+					is, _, err := solveStage(ctx, s, opt.mutableBuildContextOutput, opt, copts...)
+					if err != nil {
+						return true, err
+					}
+					cmd.sources[i] = is
 				}
 
 				if breakCmd, err = dispatch(ctx, d, cmd, opt, copts...); err != nil {

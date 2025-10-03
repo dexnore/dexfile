@@ -25,7 +25,7 @@ func MainContext(ctx context.Context, c dexfile.Client, bc dexfile.BuildContext,
 	}
 
 	dcontext := dexcontext.New(c, bc)
-	src, err := dcontext.Dexfile(ctx, dexfile.DefaultDexfileName, opts...)
+	src, err := dcontext.Dexfile(ctx, dexfile.DefaultDexfileName)
 	if err != nil {
 		return nil, err
 	}
