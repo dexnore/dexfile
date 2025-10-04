@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"maps"
 	"strconv"
 	"strings"
 
@@ -176,11 +177,14 @@ func dispatchCtr(ctx context.Context, d *dispatchState, ctr *converter.CommandCo
 				return false, parser.WithLocation(err, cmd.Location())
 			}
 			for i, s := range dc.sources {
-				is, _, _, err := solveDispatchableStages(ctx, s, opt, copts...)
-				if err != nil {
-					return true, err
+				if !s.dispatched {
+					is, ctxPaths, _, err := solveDispatchableStages(ctx, s, opt, copts...)
+					if err != nil {
+						return true, err
+					}
+					maps.Copy(d.ctxPaths, ctxPaths)
+					dc.sources[i] = is
 				}
-				dc.sources[i] = is
 			}
 			if breakCmd, err = dispatch(ctx, d, dc, opt, LocalCopts...); err != nil {
 				return breakCmd, parser.WithLocation(err, dc.Location())

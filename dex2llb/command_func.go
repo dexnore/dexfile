@@ -3,6 +3,7 @@ package dex2llb
 import (
 	"context"
 	"fmt"
+	"maps"
 	"strings"
 
 	"github.com/dexnore/dexfile/instructions/converter"
@@ -52,11 +53,14 @@ func handleFunctionCall(ctx context.Context, cmd converter.Function, d *dispatch
 			return false, err
 		}
 		for i, s := range ic.sources {
-			is, _, _, err := solveDispatchableStages(ctx, s, opt, copts...)
-			if err != nil {
-				return true, err
+			if !s.dispatched {
+				is, ctxPaths, _, err := solveDispatchableStages(ctx, s, opt, copts...)
+				if err != nil {
+					return true, err
+				}
+				maps.Copy(d.ctxPaths, ctxPaths)
+				ic.sources[i] = is
 			}
-			ic.sources[i] = is
 		}
 		if breakCmd, err = dispatch(ctx, ds, ic, dOpt, copts...); err != nil {
 			return breakCmd, err
