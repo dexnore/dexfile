@@ -13,6 +13,7 @@ on:
   push:
     branches:
       - 'master'
+      - 'hotfix'
       - 'v[0-9]+.[0-9]+'
     tags:
       - 'dexfile/*'
@@ -26,7 +27,7 @@ env:
   SETUP_BUILDX_VERSION: "edge"
   SETUP_BUILDKIT_TAG: "moby/buildkit:latest"
   SCOUT_VERSION: "1.13.0"
-  IMAGE_NAME: "dexnore/dexfile-upstream"
+  # IMAGE_NAME: "dexnore/dexfile-upstream"
   PLATFORMS: "linux/386,linux/amd64,linux/arm/v7,linux/arm64,linux/mips,linux/mipsle,linux/mips64,linux/mips64le,linux/s390x,linux/ppc64le,linux/riscv64"
 
 jobs:
@@ -38,6 +39,7 @@ jobs:
       push: ${{ steps.prep.outputs.push }}
       tag: ${{ steps.prep.outputs.tag }}
       tags: ${{ steps.prep.outputs.tags }}
+      image_name: ${{ steps.prep.outputs.image_name }}
     steps:
       -
         name: Prepare
@@ -58,6 +60,11 @@ jobs:
           if [ "$GITHUB_REPOSITORY" != "dexnore/dexfile" ]; then
             PUSH=false
           fi
+          if [[ "${GITHUB_REF}" == refs/tags/dexfile/* ]] && [ "${TYP}" = "master" ]; then
+            echo "image_name=[\"dexnore/dexfile\", \"dexnore/dexfile-upstream\"]" >> $GITHUB_OUTPUT
+          else
+            echo "image_name=[\"dexnore/dexfile-upstream\"]" >> $GITHUB_OUTPUT
+          fi
           echo "typ=${TYP}" >>${GITHUB_OUTPUT}
           echo "push=${PUSH}" >>${GITHUB_OUTPUT}
           echo "tag=${TAG}" >>${GITHUB_OUTPUT}
@@ -75,6 +82,7 @@ jobs:
       fail-fast: false
       matrix:
         tag: ${{ fromJson(needs.prepare.outputs.tags) }}
+        image_name: ${{ fromJson(needs.prepare.outputs.image_name) }}
     steps:
       -
         name: Prepare
@@ -110,7 +118,7 @@ jobs:
       -
         name: Build
         run: |
-          ./hack/release "${{ needs.prepare.outputs.typ }}" "${{ matrix.tag }}" "$IMAGE_NAME" "${{ needs.prepare.outputs.push }}"
+          ./hack/release "${{ needs.prepare.outputs.typ }}" "${{ matrix.tag }}" "${{ matrix.image_name }}" "${{ needs.prepare.outputs.push }}"
         env:
           RELEASE: ${{ github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/v') }}
           CACHE_FROM: type=gha,scope=${{ env.CACHE_SCOPE }}
