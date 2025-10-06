@@ -4,7 +4,6 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
-# https://docs.github.com/en/actions/using-workflows/workflow-syntax-for-github-actions#permissions
 permissions:
   contents: read
 
@@ -27,7 +26,6 @@ env:
   SETUP_BUILDX_VERSION: "edge"
   SETUP_BUILDKIT_TAG: "moby/buildkit:latest"
   SCOUT_VERSION: "1.13.0"
-  # IMAGE_NAME: "dexnore/dexfile-upstream"
   PLATFORMS: "linux/386,linux/amd64,linux/arm/v7,linux/arm64,linux/mips,linux/mipsle,linux/mips64,linux/mips64le,linux/s390x,linux/ppc64le,linux/riscv64"
 
 jobs:
@@ -41,82 +39,89 @@ jobs:
       tags: ${{ steps.prep.outputs.tags }}
       image_name: ${{ steps.prep.outputs.image_name }}
     steps:
-      -
-        name: Prepare
+      - name: Prepare
         id: prep
         run: |
           TYP=master
           TAG=mainline
-          PUSH=false
+          PUSH=
+
+          # Detect tag
           if [[ $GITHUB_REF == refs/tags/dexfile/* ]]; then
             TYP=tag
             TAG=${GITHUB_REF#refs/tags/}
             PUSH=push
+          # Detect branch
           elif [[ $GITHUB_REF == refs/heads/* ]]; then
             if [ $GITHUB_REF = "refs/heads/${{ github.event.repository.default_branch }}" ]; then
               PUSH=push
             fi
           fi
-          if [ "$GITHUB_REPOSITORY" != "dexnore/dexfile" ]; then
-            PUSH=false
-          fi
-          if [[ "${GITHUB_REF}" == refs/tags/dexfile/* ]] && [ "${TYP}" = "master" ]; then
-            echo "image_name=[\"dexnore/dexfile\", \"dexnore/dexfile-upstream\"]" >> $GITHUB_OUTPUT
+
+          # Determine images to push
+          if [ "$GITHUB_REPOSITORY" = "dexnore/dexfile" ]; then
+            if [ "$TYP" = "tag" ]; then
+              echo "image_name=[\"dexnore/dexfile\", \"dexnore/dexfile-upstream\"]" >> ${GITHUB_OUTPUT}
+            else
+              echo "image_name=[\"dexnore/dexfile-upstream\"]" >> ${GITHUB_OUTPUT}
+            fi
           else
-            echo "image_name=[\"dexnore/dexfile-upstream\"]" >> $GITHUB_OUTPUT
+            echo "image_name=[\"dexnore/dexfile-upstream\"]" >> ${GITHUB_OUTPUT}
+            PUSH=
           fi
-          echo "typ=${TYP}" >>${GITHUB_OUTPUT}
-          echo "push=${PUSH}" >>${GITHUB_OUTPUT}
-          echo "tag=${TAG}" >>${GITHUB_OUTPUT}
-          if [ "${TYP}" = "master" ]; then
-            echo "tags=$(jq -cn --arg tag "$TAG" '[$tag, "labs"]')" >>${GITHUB_OUTPUT}
+
+          # Output variables
+          echo "typ=${TYP}" >> ${GITHUB_OUTPUT}
+          echo "push=${PUSH}" >> ${GITHUB_OUTPUT}
+          echo "tag=${TAG}" >> ${GITHUB_OUTPUT}
+
+          # Tags for matrix
+          if [ "$TYP" = "master" ]; then
+            echo "tags=$(jq -cn --arg tag "$TAG" '[$tag, "labs"]')" >> ${GITHUB_OUTPUT}
           else
-            echo "tags=$(jq -cn --arg tag "$TAG" '[$tag]')" >>${GITHUB_OUTPUT}
+            echo "tags=$(jq -cn --arg tag "$TAG" '[$tag]')" >> ${GITHUB_OUTPUT}
           fi
 
   image:
     runs-on: ubuntu-24.04
-    needs:
-      - prepare
+    needs: prepare
     strategy:
       fail-fast: false
       matrix:
         tag: ${{ fromJson(needs.prepare.outputs.tags) }}
         image_name: ${{ fromJson(needs.prepare.outputs.image_name) }}
     steps:
-      -
-        name: Prepare
+      - name: Set cache scope
         run: |
           if [[ "${{ matrix.tag }}" = "labs" ]] || [[ "${{ matrix.tag }}" == *-labs ]]; then
-            echo "CACHE_SCOPE=frontend-labs" >>${GITHUB_ENV}
+            echo "CACHE_SCOPE=frontend-labs" >> ${GITHUB_ENV}
           else
-            echo "CACHE_SCOPE=frontend-mainline" >>${GITHUB_ENV}
-          fi
-      -
-        name: Checkout
+            echo "CACHE_SCOPE=frontend-mainline" >> ${GITHUB_ENV}
+
+      - name: Checkout
         uses: actions/checkout@v5
-      -
-        name: Expose GitHub Runtime
+
+      - name: Expose GitHub Runtime
         uses: crazy-max/ghaction-github-runtime@v3
-      -
-        name: Set up QEMU
+
+      - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
-      -
-        name: Set up Docker Buildx
+
+      - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
         with:
           version: ${{ env.SETUP_BUILDX_VERSION }}
           driver-opts: image=${{ env.SETUP_BUILDKIT_TAG }}
           buildkitd-flags: --debug
-      -
-        name: Login to DockerHub
+
+      - name: Login to DockerHub
         uses: docker/login-action@v3
         if: needs.prepare.outputs.push == 'push'
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
-      -
-        name: Build
+
+      - name: Build
         run: |
           ./hack/release "${{ needs.prepare.outputs.typ }}" "${{ matrix.tag }}" "${{ matrix.image_name }}" "${{ needs.prepare.outputs.push }}"
         env:
@@ -124,19 +129,18 @@ jobs:
           CACHE_FROM: type=gha,scope=${{ env.CACHE_SCOPE }}
           CACHE_TO: type=gha,scope=${{ env.CACHE_SCOPE }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
   release:
     runs-on: ubuntu-24.04
     if: startsWith(github.ref, 'refs/tags/dexfile')
     permissions:
-      # required to create GitHub release
       contents: write
     needs:
       - prepare
       - image
     steps:
-      -
-        name: GitHub Release
-        uses: softprops/action-gh-release@72f2c25fcb47643c292f7107632f7a47c1df5cd8  # v2.3.2
+      - name: GitHub Release
+        uses: softprops/action-gh-release@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
