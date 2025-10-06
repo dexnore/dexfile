@@ -53,7 +53,7 @@ jobs:
             PUSH=push
           # Detect branch
           elif [[ $GITHUB_REF == refs/heads/* ]]; then
-            if [ $GITHUB_REF = "refs/heads/${{ github.event.repository.default_branch }}" ]; then
+            if [[ $GITHUB_REF = "refs/heads/${{ github.event.repository.default_branch }}" ]]; then
               PUSH=push
             fi
           fi
@@ -61,25 +61,25 @@ jobs:
           # Determine images to push
           if [ "$GITHUB_REPOSITORY" = "dexnore/dexfile" ]; then
             if [ "$TYP" = "tag" ]; then
-              echo "image_name=[\"dexnore/dexfile\", \"dexnore/dexfile-upstream\"]" >> ${GITHUB_OUTPUT}
+              echo 'image_name=["dexnore/dexfile","dexnore/dexfile-upstream"]' >> $GITHUB_OUTPUT
             else
-              echo "image_name=[\"dexnore/dexfile-upstream\"]" >> ${GITHUB_OUTPUT}
+              echo 'image_name=["dexnore/dexfile-upstream"]' >> $GITHUB_OUTPUT
             fi
           else
-            echo "image_name=[\"dexnore/dexfile-upstream\"]" >> ${GITHUB_OUTPUT}
+            echo 'image_name=["dexnore/dexfile-upstream"]' >> $GITHUB_OUTPUT
             PUSH=
           fi
 
           # Output variables
-          echo "typ=${TYP}" >> ${GITHUB_OUTPUT}
-          echo "push=${PUSH}" >> ${GITHUB_OUTPUT}
-          echo "tag=${TAG}" >> ${GITHUB_OUTPUT}
+          echo "typ=${TYP}" >> $GITHUB_OUTPUT
+          echo "push=${PUSH}" >> $GITHUB_OUTPUT
+          echo "tag=${TAG}" >> $GITHUB_OUTPUT
 
           # Tags for matrix
           if [ "$TYP" = "master" ]; then
-            echo "tags=$(jq -cn --arg tag "$TAG" '[$tag, "labs"]')" >> ${GITHUB_OUTPUT}
+            echo "tags=$(jq -cn --arg tag "$TAG" '[$tag, "labs"]')" >> $GITHUB_OUTPUT
           else
-            echo "tags=$(jq -cn --arg tag "$TAG" '[$tag]')" >> ${GITHUB_OUTPUT}
+            echo "tags=$(jq -cn --arg tag "$TAG" '[$tag]')" >> $GITHUB_OUTPUT
           fi
 
   image:
@@ -94,9 +94,9 @@ jobs:
       - name: Set cache scope
         run: |
           if [[ "${{ matrix.tag }}" = "labs" ]] || [[ "${{ matrix.tag }}" == *-labs ]]; then
-            echo "CACHE_SCOPE=frontend-labs" >> ${GITHUB_ENV}
+            echo "CACHE_SCOPE=frontend-labs" >> $GITHUB_ENV
           else
-            echo "CACHE_SCOPE=frontend-mainline" >> ${GITHUB_ENV}
+            echo "CACHE_SCOPE=frontend-mainline" >> $GITHUB_ENV
 
       - name: Checkout
         uses: actions/checkout@v5
