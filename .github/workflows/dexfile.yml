@@ -97,6 +97,7 @@ jobs:
             echo "CACHE_SCOPE=frontend-labs" >> $GITHUB_ENV
           else
             echo "CACHE_SCOPE=frontend-mainline" >> $GITHUB_ENV
+          fi
 
       - name: Checkout
         uses: actions/checkout@v5
