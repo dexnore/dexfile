@@ -46,7 +46,7 @@ func dispatchEnv(d *dispatchState, c *converter.EnvCommand, lint *linter.Linter,
 	return commitToHistory(&d.image, commitMessage.String(), false, nil, d.epoch)
 }
 
-func dispatchRun(d *dispatchState, c *converter.RunCommand, proxy *llb.ProxyEnv, sources []*dispatchState, dopt dispatchOpt, copts ...llb.ConstraintsOpt) error {
+func dispatchRun(d *dispatchState, c *converter.RunCommand, proxy *llb.ProxyEnv, sources []*dispatchState, dopt dispatchOpt, copts ...llb.ConstraintsOpt) (err error) {
 	var opt []llb.RunOption
 
 	customname := c.String()

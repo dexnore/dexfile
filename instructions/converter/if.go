@@ -108,7 +108,7 @@ func parseIf(req parseRequest) (ifcmd *ConditionIF, err error) {
 		if used := req.flags.Used(); slices.Contains(used, "timeout") {
 			ifcmd.TimeOut = &timeout
 		} else {
-			dur := 10 * time.Minute
+			dur := 10 * time.Second
 			ifcmd.TimeOut = &dur
 		}
 

@@ -96,6 +96,7 @@ forloop:
 			def, err := ds.state.Marshal(ctx)
 			if err != nil {
 				errs = errors.Join(parser.WithLocation(err, cond.Location()), errs)
+				prevStderr.WriteString(err.Error())
 				continue forloop
 			}
 
@@ -138,6 +139,7 @@ forloop:
 				})
 				if err != nil {
 					errs = errors.Join(errs, parser.WithLocation(err, block.Location()))
+					prevStderr.WriteString(err.Error())
 					continue forloop
 				}
 
@@ -150,6 +152,7 @@ forloop:
 			def, err := ds.state.Marshal(ctx)
 			if err != nil {
 				errs = errors.Join(parser.WithLocation(err, cond.Location()), errs)
+				prevStderr.WriteString(err.Error())
 				continue forloop
 			}
 
@@ -212,6 +215,7 @@ forloop:
 				})
 				if err != nil {
 					errs = errors.Join(errs, parser.WithLocation(err, block.Location()))
+					prevStderr.WriteString(err.Error())
 					continue forloop
 				}
 
@@ -221,16 +225,13 @@ forloop:
 				return exec(cmd.ConditionElse[i-1].Commands, localCopts...)
 			}
 		case *converter.CommandProcess:
-			stdout, stderr, err := handleProc(ctx, ds, cond, dOpt)
-			if stdout.String() == "" && stderr.String() == "" {
-				if err == nil {
-					err = fmt.Errorf("unable to start [PROC]")
-				}
-				return false, parser.WithLocation(err, cond.Location())
-			}
-
+			ic, err := toCommand(cond, dOpt.allDispatchStates)
 			if err != nil {
+				return false, err
+			}
+			if err := dispatchProc(ctx, ds, cond, opt.proxyEnv, ic.sources, dOpt); err != nil {
 				errs = errors.Join(parser.WithLocation(err, cond.Location()), errs)
+				prevStderr.WriteString(err.Error())
 				continue forloop
 			}
 
@@ -252,6 +253,7 @@ forloop:
 			def, err := bs.state.Marshal(ctx, LocalCopts...)
 			if err != nil {
 				errs = errors.Join(parser.WithLocation(err, cond.Location()), errs)
+				prevStderr.WriteString(err.Error())
 				continue forloop
 			}
 
@@ -262,6 +264,7 @@ forloop:
 			})
 			if err != nil {
 				errs = errors.Join(parser.WithLocation(err, cond.Location()), errs)
+				prevStderr.WriteString(err.Error())
 				continue forloop
 			}
 

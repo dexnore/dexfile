@@ -53,7 +53,7 @@ func handleForLoop(ctx context.Context, d *dispatchState, cmd converter.CommandF
 		llb.ProgressGroup(forID, fmt.Sprintf("FOR %+v", cmd.EXEC), false),
 	}
 	LocalCopts := append(copts, localCopts...)
-	ds, isProc := d.Clone(), false
+	ds := d.Clone()
 	dOpt, err := opt.Clone()
 	if err != nil {
 		return false, err
@@ -61,9 +61,7 @@ func handleForLoop(ctx context.Context, d *dispatchState, cmd converter.CommandF
 
 	var (
 		stdout    = bytes.NewBuffer(nil)
-		stderr    = bytes.NewBuffer(nil)
 		execop    *internal.ExecOp
-		returnErr bool
 	)
 	switch exec := cmd.EXEC.(type) {
 	case *converter.CommandExec:
@@ -133,27 +131,15 @@ func handleForLoop(ctx context.Context, d *dispatchState, cmd converter.CommandF
 			return false, parser.WithLocation(ctrErr, cmd.Location())
 		}
 	case *converter.CommandProcess:
-		if stdout, stderr, err = handleProc(ctx, ds, exec, dOpt); err != nil {
-			if stdout.String() == "" && stderr.String() == "" {
-				return false, parser.WithLocation(fmt.Errorf("process command: %w", err), exec.Location())
-			}
+		ic, err := toCommand(exec, dOpt.allDispatchStates)
+		if err != nil {
 			return false, err
 		}
-		isProc = true
+		if err := dispatchProc(ctx, ds, exec, dOpt.proxyEnv, ic.sources, dOpt); err != nil {
+			return false, err
+		}
 	default:
 		return false, parser.WithLocation(fmt.Errorf("unsupported [FOR] command exec: %s", exec.Name()), exec.Location())
-	}
-
-	if !isProc {
-		returnErr, breakCmd, err = internal.StartProcess(ctx, ctr, cmd.TimeOut, *execop, func() (bool, error) {
-			return false, nil
-		}, &nopCloser{stdout}, &nopCloser{stderr})
-		if err != nil {
-			if returnErr {
-				return breakCmd, parser.WithLocation(fmt.Errorf("%s: %w", stderr.String(), err), cmd.Location())
-			}
-			return breakCmd, err
-		}
 	}
 
 	if cmd.Regex.Action == "" {

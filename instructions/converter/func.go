@@ -3,6 +3,9 @@ package converter
 import (
 	"fmt"
 	"strings"
+
+	"github.com/dexnore/dexfile/instructions/parser"
+	"github.com/pkg/errors"
 )
 
 type Function struct {
@@ -71,7 +74,7 @@ func parseFunc(req parseRequest) (fun *Function, err error) {
 func parseEndFunc(req parseRequest) (*EndFunction, error) {
 	if len(req.args) > 0 {
 		if s := strings.TrimSpace(strings.Join(req.args, " ")); s != "" {
-			return nil, &UnknownInstructionError{Instruction: s, Line: req.location[0].Start.Line}
+			return nil, parser.WithLocation(errors.New("unexpected arguments for 'endfunc'"), req.location)
 		}
 	}
 	return &EndFunction{withNameAndCode: newWithNameAndCode(req)}, nil

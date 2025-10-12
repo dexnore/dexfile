@@ -15,7 +15,6 @@ func init() {
 		command.BUILD:       parseStringsWhitespaceDelimited,
 		command.CMD:         parseMaybeJSON,
 		command.COPY:        parseMaybeJSONToList,
-		command.CTR:         parseStringsWhitespaceDelimited,
 		command.ENTRYPOINT:  parseMaybeJSON,
 		command.ENV:         parseEnv,
 		command.EXEC:        parseMaybeJSON,

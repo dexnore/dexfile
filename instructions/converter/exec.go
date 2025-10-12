@@ -33,7 +33,7 @@ func parseExec(req parseRequest) (exec *CommandExec, err error) {
 	if _, ok := req.flags.used["timeout"]; ok {
 		exec.TimeOut = &timeout
 	} else {
-		dur := 10 * time.Minute
+		dur := 10 * time.Second
 		exec.TimeOut = &dur
 	}
 

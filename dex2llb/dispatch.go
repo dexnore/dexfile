@@ -1,9 +1,9 @@
 package dex2llb
 
 import (
-	"maps"
 	"context"
 	"fmt"
+	"maps"
 	"path"
 	"path/filepath"
 	"strings"
@@ -196,8 +196,6 @@ func dispatch(ctx context.Context, d *dispatchState, cmd command, opt dispatchOp
 			}
 			return false, nil
 		}, opt, copts...)
-	case *converter.CommandContainer:
-		return dispatchCtr(ctx, d, c, cmd.sources, opt, copts...)
 	case *converter.Function:
 		return dispatchFunction(ctx, d, *c, opt, copts...)
 	case *converter.CommandBuild:
@@ -208,13 +206,7 @@ func dispatch(ctx context.Context, d *dispatchState, cmd command, opt dispatchOp
 		*d = *ds
 		return true, nil
 	case *converter.CommandProcess:
-		optClone, err := opt.Clone()
-		if err != nil {
-			return false, err
-		}
-		stdout, stderr, err := handleProc(ctx, d.Clone(), c, optClone)
-		d.state = d.state.WithValue(ARG_STDOUT, stdout).WithValue(ARG_STDERR, stderr)
-		return false, err
+		return false, dispatchProc(ctx, d, c, opt.proxyEnv, cmd.sources, opt)
 	case *converter.ImportCommand:
 		opt.globalArgs, d.outline, err = expandImportAndAddDispatchState(len(opt.allDispatchStates.statesByName), *c, expandImportOpt{
 			globalArgs:        opt.globalArgs.(*llb.EnvList),

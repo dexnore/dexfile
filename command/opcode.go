@@ -29,8 +29,6 @@ const (
 	WHILE   = "while"
 	IMPORT  = "import"
 	EXEC    = "exec"
-	CTR     = "ctr"
-	ENDCTR  = "endctr"
 	PROC    = "proc"
 	FUNC    = "func"
 	ENDFUNC = "endfunc"
@@ -62,8 +60,6 @@ var Instructions = map[string]struct{}{
 	ELSE:    {},
 	ENDIF:   {},
 	EXEC:    {},
-	CTR:     {},
-	ENDCTR:  {},
 	PROC:    {},
 	FUNC:    {},
 	ENDFUNC: {},

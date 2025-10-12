@@ -472,7 +472,7 @@ func toCommand(ic converter.Command, allDispatchStates *dispatchStates) (command
 	}
 
 	detectRunMount(&cmd, allDispatchStates)
-	if c, ok := ic.(*converter.CommandContainer); ok {
+	if c, ok := ic.(*converter.CommandProcess); ok {
 		if c.From != "" {
 			var stn *dispatchState
 			index, err := strconv.Atoi(c.From)

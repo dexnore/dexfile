@@ -2,6 +2,9 @@ package converter
 
 import (
 	"strings"
+
+	"github.com/dexnore/dexfile/instructions/parser"
+	"github.com/pkg/errors"
 )
 
 type EndIf struct {
@@ -11,7 +14,7 @@ type EndIf struct {
 func parseEndIf(req parseRequest) (*EndIf, error) {
 	if len(req.args) > 0 {
 		if s := strings.TrimSpace(strings.Join(req.args, " ")); s != "" {
-			return nil, &UnknownInstructionError{Instruction: s, Line: req.location[0].Start.Line}
+			return nil, parser.WithLocation(errors.New("unexpected arguments to 'endif'"), req.location)
 		}
 	}
 

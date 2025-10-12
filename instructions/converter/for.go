@@ -108,7 +108,7 @@ func parseFor(req parseRequest) (forcmd *CommandFor, err error) {
 		if _, ok := req.flags.used["timeout"]; ok {
 			forcmd.TimeOut = &timeout
 		} else {
-			dur := 10 * time.Minute
+			dur := 10 * time.Second
 			forcmd.TimeOut = &dur
 		}
 	default:
