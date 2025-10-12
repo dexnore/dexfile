@@ -52,13 +52,11 @@ func dispatchProc(ctx context.Context, d *dispatchState, cmd *converter.CommandP
 		return err
 	}
 
-	if 
-
 	var (
 		ifElseID                     = identity.NewID()
 		localCopts                   = []llb.ConstraintsOpt{
 			llb.WithCaps(*opt.llbCaps),
-			llb.ProgressGroup(ifElseID, "IF/ELSE ==> "+cmd.String(), false),
+			llb.ProgressGroup(ifElseID, cmd.String(), false),
 		}
 		LocalCopts = append(copts, localCopts...)
 		stdout = bytes.NewBuffer(nil)
@@ -69,7 +67,7 @@ func dispatchProc(ctx context.Context, d *dispatchState, cmd *converter.CommandP
 	if err != nil {
 		return err
 	}
-	if _, err = dispatch(ctx, ds, dc, dOpt, LocalCopts...); err != nil {
+	if err = dispatchRun(ds, &cmd.RunCommand, proxy, sources, dOpt, LocalCopts...); err != nil {
 		return err
 	}
 
@@ -120,13 +118,13 @@ func dispatchProc(ctx context.Context, d *dispatchState, cmd *converter.CommandP
 		}
 		return nil
 	}
-
+	
 	_, _, err = internal.StartProcess(ctx, ctr, cmd.TimeOut, *execop, func() (bool, error) {
 		d.state = d.state.
 			AddEnv("STDOUT", stripNewlineSuffix(stdout.String())[0]).
 			AddEnv("STDERR", stripNewlineSuffix(stderr.String())[0])
 		return false, nil
-	}, &nopCloser{stdout}, &nopCloser{stderr})
+	}, internal.NopCloser(stdout), internal.NopCloser(stderr))
 	return err
 }
 

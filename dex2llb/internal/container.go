@@ -65,7 +65,7 @@ func CreateContainer(ctx context.Context, c client.Client, execop *ExecOp, mount
 	return c.NewContainer(ctx, ctrReq)
 }
 
-func startProcess(ctx context.Context, ctr client.Container, execop *pb.ExecOp, stdout, stderr io.WriteCloser) (client.ContainerProcess, error) {
+func startProcess(ctx context.Context, ctr client.Container, execop *pb.ExecOp, stdout, stderr io.WriteCloser) (_ client.ContainerProcess, err error) {
 	if execop == nil {
 		return nil, fmt.Errorf("failed to create ctr process %+v", execop)
 	}
@@ -86,7 +86,7 @@ func startProcess(ctx context.Context, ctr client.Container, execop *pb.ExecOp, 
 	return ctr.Start(ctx, startReq)
 }
 
-func StartProcess(ctx context.Context, ctr client.Container, timeout *time.Duration, execop ExecOp, handleCond func() (bool, error), stdout, stderr WriteCloseStringer) (retErr, buildCmd bool, err error) {
+func StartProcess(ctx context.Context, ctr client.Container, timeout *time.Duration, execop ExecOp, handleCond func() (bool, error), stdout, stderr io.WriteCloser) (retErr, buildCmd bool, err error) {
 	defer func() {
 		if err == nil && handleCond != nil {
 			retErr = true
@@ -102,7 +102,6 @@ func StartProcess(ctx context.Context, ctr client.Container, timeout *time.Durat
 	if timeout != nil {
 		dur = *timeout
 	}
-
 	pidCtx, cancel := context.WithTimeoutCause(ctx, dur, fmt.Errorf("timeout: conditional instruction exceeded %s. Increase the --timeout if necessary", FormatDuration(dur)))
 	defer cancel()
 	var pid client.ContainerProcess

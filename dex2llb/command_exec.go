@@ -160,7 +160,7 @@ func dispatchExec(ctx context.Context, d *dispatchState, cmd converter.CommandEx
 
 		d.state = llb.Merge([]llb.State{d.state, s}, append(copts, llb.WithCustomNamef("EXEC %s", strings.Join(cmd.RUN.CmdLine, " ")))...)
 		return false, nil
-	}, &nopCloser{stdout}, &nopCloser{stderr})
+	}, internal.NopCloser(stdout), internal.NopCloser(stderr))
 	if retErr {
 		return parser.WithLocation(fmt.Errorf("%s\n%w", stderr.String(), err), cmd.Location())
 	}

@@ -296,7 +296,7 @@ forloop:
 				AddEnv("STDOUT", stripNewlineSuffix(stdout.String())[0]).
 				AddEnv("STDERR", stripNewlineSuffix(stderr.String())[0])
 			return exec(conditionalCommands, LocalCopts...)
-		}, &nopCloser{stdout}, &nopCloser{stderr})
+		}, internal.NopCloser(stdout), internal.NopCloser(stderr))
 		if stdout != nil {
 			prevStdout.Write(stdout.Bytes())
 		}
