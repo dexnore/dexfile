@@ -13,6 +13,7 @@ import (
 )
 
 func convertMounts(mounts map[*pb.Mount]*client.Result) (cm []client.Mount) {
+	cm = make([]client.Mount, 0, len(mounts))
 	for m, r := range mounts {
 		mnt := client.Mount{
 			Dest:      m.Dest,
