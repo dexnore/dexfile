@@ -140,7 +140,6 @@ In Addition Dexfile introduces the following new commands
 | [`IMPORT`](./README.md#import)  | import external dockerfiles and dexfiles stages for reusability                  |
 | [`FUNC`](./README.md#func)      | reusable block of instructions within the file                                   |
 | [`FOR`](./README.md#for)        | loop over the set of result items                                                |
-| [`CTR`](./README.md#ctr)        | creates an ephemeral container                                                   |
 | [`PROC`](./README.md#proc)      | start a process in the ephemeral container                                       |
 | [`BUILD`](./README.md#build)    | build the target stage from scratch and emit output                              |
 | [`EXEC`](./README.md#exec)      | Incorporate the LLB result produced by EXEC into the active Dexfile build state. |
@@ -386,47 +385,6 @@ END
 * On each iteration, `gcc` compiles that file into an object file (`.o`).
 
 * After the loop completes, every file in the directory has been compiled.
-
-## CTR
-
-The `CTR` clause is used to create an **ephemeral container**. All containers created with `CTR` are automatically cleaned up once the block reaches `ENDCTR`. Processes inside the container can be executed using the `PROC` instruction.
-
-A `CTR` block can supports all instructions and take effect on current stage, except `PROC`.
-
-**Key Points:**
-
-* No image layers are committed from a `CTR` block.
-
-* Use `PROC` inside `CTR` for isolated operations.
-
-* Ideal for testing, building, or ephemeral operations that should not persist in the final image.
-
-### Syntax
-
-```dockerfile
-CTR [<ctr_options>...] <ctr_name> [ FROM <base_image_name> ]
-    <ctr-block>...
-ENDCTR
-```
-
-* If `FROM <base_image_name>` is omitted, the container defaults to the **current state of the stage**.
-
-* The `<ctr_name>` can be referenced by `PROC` to execute processes,[ eve]()n when nested `CTR` blocks are used.
-
-### Options
-
-| **FLAG** | **Description**                                                 |
-| -------- | --------------------------------------------------------------- |
-| `mount`  | Create filesystem mounts accessible by the ephemeral container. |
-
-### Examples
-
-```dockerfile
-CTR tester
-    PROC npx jest # run inside ephemeral container
-    RUN npx jest # run as part of the build state
-ENDCTR
-```
 
 ## PROC
 
