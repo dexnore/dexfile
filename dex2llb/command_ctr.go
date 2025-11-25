@@ -1,7 +1,6 @@
 package dex2llb
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"strconv"
@@ -12,9 +11,7 @@ import (
 	"github.com/dexnore/dexfile/instructions/parser"
 	"github.com/moby/buildkit/client/llb"
 	"github.com/moby/buildkit/frontend/gateway/client"
-	"github.com/moby/buildkit/identity"
 	"github.com/moby/buildkit/solver/pb"
-	"github.com/pkg/errors"
 )
 
 var (
@@ -52,24 +49,21 @@ func dispatchProc(ctx context.Context, d *dispatchState, cmd *converter.CommandP
 		return err
 	}
 
-	var (
-		ifElseID                     = identity.NewID()
-		localCopts                   = []llb.ConstraintsOpt{
-			llb.WithCaps(*opt.llbCaps),
-			llb.ProgressGroup(ifElseID, cmd.String(), false),
+	if cmd.From != "" {
+		ds.state, err = containerState(cmd, opt.allDispatchStates)
+		if err != nil {
+			return err
 		}
-		LocalCopts = append(copts, localCopts...)
-		stdout = bytes.NewBuffer(nil)
-		stderr = bytes.NewBuffer(nil)
-	)
+	}
 
-	dc, err := toCommand(cmd, opt.allDispatchStates)
-	if err != nil {
+	if err := dispatchRun(ds, &cmd.RunCommand, proxy, sources, dOpt, copts...); err != nil {
 		return err
 	}
-	if err = dispatchRun(ds, &cmd.RunCommand, proxy, sources, dOpt, LocalCopts...); err != nil {
-		return err
-	}
+
+	var (
+		stdout = internal.NopCloser()
+		stderr = internal.NopCloser()
+	)
 
 	def, err := ds.state.Marshal(ctx)
 	if err != nil {
@@ -82,7 +76,7 @@ func dispatchProc(ctx context.Context, d *dispatchState, cmd *converter.CommandP
 	}
 
 	if execop == nil {
-		return parser.WithLocation(errors.New("no conditional statement found"), cmd.Location())
+		return parser.WithLocation(fmt.Errorf("internal error: failed to retrive exec op"), cmd.Location())
 	}
 
 	ddef, err := d.state.Marshal(ctx)
@@ -98,7 +92,7 @@ func dispatchProc(ctx context.Context, d *dispatchState, cmd *converter.CommandP
 		return parser.WithLocation(fmt.Errorf("failed to marshal state: %w", err), cmd.Location())
 	}
 
-	ctrMounts, err := mountsForContainer(ctx, cmd, execop, dc.sources, res, ds, dOpt)
+	ctrMounts, err := mountsForContainer(ctx, cmd, execop, sources, res, ds, dOpt)
 	if err != nil {
 		return err
 	}
@@ -116,6 +110,7 @@ func dispatchProc(ctx context.Context, d *dispatchState, cmd *converter.CommandP
 		if err != nil {
 			return parser.WithLocation(err, cmd.Location())
 		}
+
 		return nil
 	}
 	
@@ -124,7 +119,7 @@ func dispatchProc(ctx context.Context, d *dispatchState, cmd *converter.CommandP
 			AddEnv("STDOUT", stripNewlineSuffix(stdout.String())[0]).
 			AddEnv("STDERR", stripNewlineSuffix(stderr.String())[0])
 		return false, nil
-	}, internal.NopCloser(stdout), internal.NopCloser(stderr))
+	}, stdout, stderr)
 	return err
 }
 
@@ -132,7 +127,7 @@ func mountsForContainer(ctx context.Context, ctr converter.WithExternalData, exe
 	var converterMounts = converter.GetMounts(ctr)
 	var ctrMounts = make(map[*pb.Mount]*client.Result, len(converterMounts)+1)
 	if ml := len(execop.Exec.Mounts); (ml != len(converterMounts)+1) || ml < 1 {
-		return nil, errors.New("internal error: failed to create container")
+		return nil, fmt.Errorf("internal error: failed to create container")
 	}
 	ctrMounts[execop.Exec.Mounts[0]] = res
 	for i := 1; i < len(execop.Exec.Mounts); i++ {

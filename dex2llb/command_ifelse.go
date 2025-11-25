@@ -17,14 +17,6 @@ import (
 	"github.com/moby/buildkit/identity"
 )
 
-type nopCloser struct {
-	*bytes.Buffer
-}
-
-func (wc *nopCloser) Close() error {
-	return nil
-}
-
 type WriteCloseStringer interface {
 	io.WriteCloser
 	String() string
@@ -235,6 +227,17 @@ forloop:
 				continue forloop
 			}
 
+			envlist, err := ds.state.Env(ctx)
+			if err != nil {
+				return false, err
+			}
+			if envlist == nil {
+				return false, fmt.Errorf("unabe to retrive file descriptors")
+			}
+			dstdout, _ := envlist.Get("STDOUT")
+			dstderr, _ := envlist.Get("STDERR")
+			d.state = d.state.AddEnv("STDOUT", stripNewlineSuffix(dstdout)[0]).AddEnv("STDERR", stripNewlineSuffix(dstderr)[0])
+
 			if i == 0 {
 				return exec(cmd.ConditionIF.Commands, localCopts...)
 			} else {
@@ -278,8 +281,8 @@ forloop:
 		}
 
 		var (
-			stdout = bytes.NewBuffer(nil)
-			stderr = bytes.NewBuffer(nil)
+			stdout = internal.NopCloser()
+			stderr = internal.NopCloser()
 		)
 
 		var timeout *time.Duration
@@ -296,12 +299,12 @@ forloop:
 				AddEnv("STDOUT", stripNewlineSuffix(stdout.String())[0]).
 				AddEnv("STDERR", stripNewlineSuffix(stderr.String())[0])
 			return exec(conditionalCommands, LocalCopts...)
-		}, internal.NopCloser(stdout), internal.NopCloser(stderr))
-		if stdout != nil {
-			prevStdout.Write(stdout.Bytes())
+		}, stdout, stderr)
+		if str := stdout.String(); str != "" {
+			prevStdout.WriteString(str)
 		}
-		if stderr != nil {
-			prevStderr.Write(stderr.Bytes())
+		if str := stderr.String(); str != "" {
+			prevStderr.WriteString(str)
 		}
 		if returnErr {
 			return breakCmd, err

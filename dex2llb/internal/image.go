@@ -1,6 +1,7 @@
 package internal
 
 import (
+	"maps"
 	"slices"
 
 	dockerspec "github.com/moby/docker-image-spec/specs-go/v1"
@@ -40,9 +41,7 @@ func exclusiveString[S ~string](s1, s2 S) S {
 }
 
 func MergeMap[S ~map[E]F, E comparable, F any](m1, m2 S) S {
-	for k, v := range m2 {
-		m1[k] = v
-	}
+	maps.Copy(m1, m2)
 
 	return m1
 }

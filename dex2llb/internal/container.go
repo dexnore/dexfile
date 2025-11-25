@@ -2,14 +2,14 @@ package internal
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"io"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/moby/buildkit/frontend/gateway/client"
 	"github.com/moby/buildkit/solver/pb"
+	"github.com/pkg/errors"
 )
 
 func convertMounts(mounts map[*pb.Mount]*client.Result) (cm []client.Mount) {
@@ -33,7 +33,7 @@ func convertMounts(mounts map[*pb.Mount]*client.Result) (cm []client.Mount) {
 
 func CreateContainer(ctx context.Context, c client.Client, execop *ExecOp, mounts map[*pb.Mount]*client.Result) (client.Container, error) {
 	if execop == nil {
-		return nil, errors.New("internal error: no RUN instruction found")
+		return nil, fmt.Errorf("internal error: no RUN instruction found")
 	}
 
 	if execop.Exec == nil {
@@ -66,7 +66,7 @@ func CreateContainer(ctx context.Context, c client.Client, execop *ExecOp, mount
 	return c.NewContainer(ctx, ctrReq)
 }
 
-func startProcess(ctx context.Context, ctr client.Container, execop *pb.ExecOp, stdout, stderr io.WriteCloser) (_ client.ContainerProcess, err error) {
+func startProcess(ctx context.Context, ctr client.Container, execop *pb.ExecOp, stdout, stderr *nopCloser) (_ client.ContainerProcess, err error) {
 	if execop == nil {
 		return nil, fmt.Errorf("failed to create ctr process %+v", execop)
 	}
@@ -87,7 +87,7 @@ func startProcess(ctx context.Context, ctr client.Container, execop *pb.ExecOp, 
 	return ctr.Start(ctx, startReq)
 }
 
-func StartProcess(ctx context.Context, ctr client.Container, timeout *time.Duration, execop ExecOp, handleCond func() (bool, error), stdout, stderr io.WriteCloser) (retErr, buildCmd bool, err error) {
+func StartProcess(ctx context.Context, ctr client.Container, timeout *time.Duration, execop ExecOp, handleCond func() (bool, error), stdout, stderr *nopCloser) (retErr, buildCmd bool, err error) {
 	defer func() {
 		if err == nil && handleCond != nil {
 			retErr = true
@@ -114,10 +114,6 @@ func StartProcess(ctx context.Context, ctr client.Container, timeout *time.Durat
 	if pid == nil {
 		return false, false, fmt.Errorf("pid is nil")
 	}
-	err = pid.Wait()
-	if err != nil {
-		err = fmt.Errorf("container process failed: %w\n%s", err, stderr)
-	}
 
-	return false, false, err
+	return false, false, errors.Wrapf(pid.Wait(), "process %q did not complete successfully\n%s", strings.Join(execop.Exec.Meta.Args, " "), stderr.String())
 }

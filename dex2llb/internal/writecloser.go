@@ -1,15 +1,25 @@
 package internal
 
-import "io"
+import (
+	"bytes"
+)
 
 type nopCloser struct {
-	io.Writer
+	data bytes.Buffer
 }
 
 func (c *nopCloser) Close() error {
 	return nil
 }
 
-func NopCloser(w io.Writer) io.WriteCloser {
-	return &nopCloser{w}
+func (c *nopCloser) Write(p []byte) (n int, err error) {
+	return c.data.Write(p)
+}
+
+func (c *nopCloser) String() string {
+	return c.data.String()
+}
+
+func NopCloser() *nopCloser {
+	return &nopCloser{}
 }

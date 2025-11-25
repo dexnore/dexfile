@@ -1,7 +1,6 @@
 package dex2llb
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -82,8 +81,8 @@ func dispatchExec(ctx context.Context, d *dispatchState, cmd converter.CommandEx
 	}
 
 	var (
-		stdout = bytes.NewBuffer(nil)
-		stderr = bytes.NewBuffer(nil)
+		stdout = internal.NopCloser()
+		stderr = internal.NopCloser()
 		retErr bool
 	)
 
@@ -93,7 +92,7 @@ func dispatchExec(ctx context.Context, d *dispatchState, cmd converter.CommandEx
 			p = *ds.platform
 		}
 
-		s, err := parseDefinationToState(ctx, stdout, dOpt.solver.Client(), p)
+		s, err := parseDefinationToState(ctx, strings.NewReader(stdout.String()), dOpt.solver.Client(), p)
 		if err != nil {
 			return false, err
 		}
@@ -160,7 +159,7 @@ func dispatchExec(ctx context.Context, d *dispatchState, cmd converter.CommandEx
 
 		d.state = llb.Merge([]llb.State{d.state, s}, append(copts, llb.WithCustomNamef("EXEC %s", strings.Join(cmd.RUN.CmdLine, " ")))...)
 		return false, nil
-	}, internal.NopCloser(stdout), internal.NopCloser(stderr))
+	}, stdout,stderr)
 	if retErr {
 		return parser.WithLocation(fmt.Errorf("%s\n%w", stderr.String(), err), cmd.Location())
 	}
