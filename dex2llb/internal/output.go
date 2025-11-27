@@ -9,15 +9,16 @@ import (
 )
 
 var _ llb.Output = &SimpleOutput{}
+
 type SimpleOutput struct {
 	Output llb.Output
-	Err error
+	Err    error
 }
 
 func NewSimpleOutput(output llb.Output, err error) *SimpleOutput {
 	return &SimpleOutput{
 		Output: output,
-		Err: err,
+		Err:    err,
 	}
 }
 

@@ -113,11 +113,11 @@ func dispatchProc(ctx context.Context, d *dispatchState, cmd *converter.CommandP
 
 		return nil
 	}
-	
+
 	_, _, err = internal.StartProcess(ctx, ctr, cmd.TimeOut, *execop, func() (bool, error) {
 		d.state = d.state.
-			AddEnv("STDOUT", stripNewlineSuffix(stdout.String())[0]).
-			AddEnv("STDERR", stripNewlineSuffix(stderr.String())[0])
+			AddEnv("STDOUT", stdout.String()).
+			AddEnv("STDERR", stderr.String())
 		return false, nil
 	}, stdout, stderr)
 	return err

@@ -4,11 +4,11 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"fmt"
 	"io"
 	"strings"
 	"time"
 
+	"github.com/dexnore/dexfile/dex2llb/internal"
 	"github.com/dexnore/dexfile/instructions/converter"
 	"github.com/moby/buildkit/client/llb"
 	gwclient "github.com/moby/buildkit/frontend/gateway/client"
@@ -72,7 +72,7 @@ func handleIfElse(ctx context.Context, d *dispatchState, cmd converter.Condition
 			return false, err
 		}
 		ds.commands = append(ds.commands, blockCmd)
-		
+
 		timeout := 10 * time.Second
 		if i == 0 && cmd.ConditionIF.TimeOut != nil {
 			timeout = *cmd.ConditionIF.TimeOut
@@ -102,16 +102,9 @@ func handleIfElse(ctx context.Context, d *dispatchState, cmd converter.Condition
 			continue
 		}
 
-		envlist, err := ds.state.Env(ctx)
-		if err != nil {
-			return false, err
-		}
-		if envlist == nil {
-			return false, fmt.Errorf("unabe to retrive file descriptors")
-		}
-		dstdout, _ := envlist.Get("STDOUT")
-		dstderr, _ := envlist.Get("STDERR")
-		d.state = d.state.AddEnv("STDOUT", stripNewlineSuffix(dstdout)[0]).AddEnv("STDERR", stripNewlineSuffix(dstderr)[0])
+		d.state = d.state.
+			AddEnv("STDOUT", stripNewlineSuffix(internal.Stdout(ds.state))[0]).
+			AddEnv("STDERR", stripNewlineSuffix(internal.Stderr(ds.state))[0])
 		if i == 0 {
 			return exec(cmd.ConditionIF.Commands, localCopts...)
 		} else {

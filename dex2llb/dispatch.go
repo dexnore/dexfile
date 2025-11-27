@@ -148,7 +148,7 @@ func dispatch(ctx context.Context, d *dispatchState, cmd command, opt dispatchOp
 					return false, parser.WithLocation(err, cmd.Location())
 				}
 				var breakCmd bool
-				
+
 				for i, s := range ic.sources {
 					if !s.dispatched {
 						is, ctxPaths, _, err := solveDispatchableStages(ctx, s, opt, copts...)
@@ -169,7 +169,7 @@ func dispatch(ctx context.Context, d *dispatchState, cmd command, opt dispatchOp
 			return false, nil
 		}, opt, copts...)
 	case *converter.CommandFor:
-		return handleForLoop(ctx, d, *c, func(nc []converter.Command, copts ...llb.ConstraintsOpt) (bool, error) {
+		return handleForLoop(ctx, d, *c, func(d *dispatchState, nc []converter.Command, copts ...llb.ConstraintsOpt) (bool, error) {
 			for _, cmd := range nc {
 				cmd, err := toCommand(cmd, opt.allDispatchStates)
 				if err != nil {

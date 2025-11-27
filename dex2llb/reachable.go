@@ -222,7 +222,7 @@ func (s *stageResolver) resolve(ctx context.Context, all []*dispatchState, targe
 									d.platform = &tp
 									return nil
 								}
-						
+
 								ref, found := res.FindRef(pt)
 								if !found {
 									d.state = llb.NewState(internal.NewSimpleOutput(nil, fmt.Errorf("no import found with platform %s", pt)))
@@ -232,7 +232,7 @@ func (s *stageResolver) resolve(ctx context.Context, all []*dispatchState, targe
 									d.platform = &tp
 									return nil
 								}
-						
+
 								st, err := ref.ToState()
 								if err != nil {
 									d.state = llb.NewState(internal.NewSimpleOutput(nil, err))
@@ -256,7 +256,7 @@ func (s *stageResolver) resolve(ctx context.Context, all []*dispatchState, targe
 									img = &i
 								}
 								d.image = *img
-						
+
 								baseImgBytes = res.Metadata[fmt.Sprintf("%s/%s", exptypes.ExporterImageBaseConfigKey, pt)]
 								if len(baseImgBytes) == 0 {
 									baseImgBytes = res.Metadata[exptypes.ExporterImageBaseConfigKey]

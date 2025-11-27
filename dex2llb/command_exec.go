@@ -157,9 +157,10 @@ func dispatchExec(ctx context.Context, d *dispatchState, cmd converter.CommandEx
 			d.image = internal.MergeDockerOCIImages(d.image, img)
 		}
 
+		s = llb.Reset(d.state)(s)
 		d.state = llb.Merge([]llb.State{d.state, s}, append(copts, llb.WithCustomNamef("EXEC %s", strings.Join(cmd.RUN.CmdLine, " ")))...)
 		return false, nil
-	}, stdout,stderr)
+	}, stdout, stderr)
 	if retErr {
 		return parser.WithLocation(fmt.Errorf("%s\n%w", stderr.String(), err), cmd.Location())
 	}

@@ -3,16 +3,17 @@ package converter
 import (
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 
 	"github.com/dexnore/dexfile/instructions/parser"
 )
 
-type forAction string
+type ForAction string
 
 const (
-	ActionForIn forAction = "in"
+	ActionForIn ForAction = "in"
 )
 
 type regexAction string
@@ -32,7 +33,7 @@ func isValidRegexAction(action regexAction) bool {
 }
 
 type Regex struct {
-	Regex  string
+	Regex  *regexp.Regexp
 	Action regexAction
 }
 
@@ -40,7 +41,7 @@ type CommandFor struct {
 	withNameAndCode
 	Commands []Command
 	Regex    Regex
-	Action   forAction
+	Action   ForAction
 	EXEC     Command
 	TimeOut  *time.Duration
 	As       string
@@ -88,7 +89,7 @@ func parseFor(req parseRequest) (forcmd *CommandFor, err error) {
 
 	switch cmd.(type) {
 	case *RunCommand, *CommandExec, *CommandProcess:
-		flRegex := req.flags.AddString("regex", "\n")
+		flRegex := req.flags.AddString("regex", "")
 		flRegexAction := req.flags.AddString("regex-action", string(ActionRegexSplit))
 		flTimeout := req.flags.AddString("timeout", "")
 		forcmd.EXEC = cmd
@@ -96,7 +97,18 @@ func parseFor(req parseRequest) (forcmd *CommandFor, err error) {
 			return nil, err
 		}
 
-		forcmd.Regex.Regex = flRegex.Value
+		forcmd.Regex.Regex, err = regexp.Compile(`\r?\n`)
+		if err != nil {
+			return nil, err
+		}
+
+		if flRegex.Value != "" {
+			forcmd.Regex.Regex, err = regexp.Compile(flRegex.Value)
+			if err != nil {
+				return nil, err
+			}
+		}
+
 		forcmd.Regex.Action = regexAction(flRegexAction.Value)
 		if !isValidRegexAction(forcmd.Regex.Action) {
 			return nil, fmt.Errorf("invalid regex action: %s", forcmd.Regex.Action)

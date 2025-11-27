@@ -5,9 +5,9 @@ import (
 )
 
 type CommandProcess struct {
-	TimeOut     *time.Duration
+	TimeOut *time.Duration
 	RunCommand
-	From        string
+	From string
 }
 
 func (c *CommandProcess) Expand(expander SingleWordExpander) error {

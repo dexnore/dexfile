@@ -1,51 +1,63 @@
 package dex2llb
 
 import (
-	"bytes"
 	"context"
-	"errors"
 	"fmt"
-	"regexp"
+	"slices"
 
-	"github.com/dexnore/dexfile"
 	"github.com/dexnore/dexfile/dex2llb/internal"
 	"github.com/dexnore/dexfile/instructions/converter"
-	"github.com/dexnore/dexfile/instructions/parser"
 	"github.com/moby/buildkit/client/llb"
-	"github.com/moby/buildkit/frontend/gateway/client"
 	"github.com/moby/buildkit/identity"
 )
 
-func handleForLoop(ctx context.Context, d *dispatchState, cmd converter.CommandFor, exec func([]converter.Command, ...llb.ConstraintsOpt) (bool, error), opt dispatchOpt, copts ...llb.ConstraintsOpt) (breakCmd bool, err error) {
-	if cmd.Action != converter.ActionForIn {
+var supportedForActions = []converter.ForAction{
+	converter.ActionForIn,
+}
+
+func handleForLoop(ctx context.Context, d *dispatchState, cmd converter.CommandFor, exec func(*dispatchState, []converter.Command, ...llb.ConstraintsOpt) (bool, error), opt dispatchOpt, copts ...llb.ConstraintsOpt) (breakCmd bool, err error) {
+	if !slices.Contains(supportedForActions, cmd.Action) {
 		return false, fmt.Errorf("unsupported 'for' action: %s", cmd.Action)
 	}
 
-	def, err := d.state.Marshal(ctx)
+	ds := d.Clone()
+	dOpt, err := opt.Clone()
 	if err != nil {
 		return false, err
 	}
 
-	res, err := opt.solver.Client().Solve(ctx, client.SolveRequest{
-		Evaluate:     true,
-		Definition:   def.ToPB(),
-		CacheImports: opt.solver.Client().Config().CacheImports,
-	})
-	if err != nil {
-		return false, parser.WithLocation(fmt.Errorf("failed to start [for] loop: %w", err), cmd.Location())
-	}
-
-	var (
-		ctr    client.Container
-		ctrErr error
-	)
-
-	defer func() {
-		if ctr == nil {
-			return
+	switch exec := cmd.EXEC.(type) {
+	case *converter.CommandProcess:
+		c, err := toCommand(exec, dOpt.allDispatchStates)
+		if err != nil {
+			return false, err
 		}
-		ctr.Release(ctx)
-	}()
+		if _, err := dispatch(ctx, ds, c, dOpt); err != nil {
+			return false, err
+		}
+	case *converter.RunCommand:
+		c, err := toCommand(exec, dOpt.allDispatchStates)
+		if err != nil {
+			return false, err
+		}
+		if err := dispatchProc(ctx, ds, &converter.CommandProcess{
+			TimeOut:    cmd.TimeOut,
+			RunCommand: *exec,
+		}, dOpt.proxyEnv, c.sources, dOpt); err != nil {
+			return false, err
+		}
+	default:
+		return false, fmt.Errorf("unsupported [FOR] command exec: %s", exec.Name())
+	}
+	var regexOutput []string
+	switch stdout := internal.Stdout(ds.state); cmd.Regex.Action {
+	case converter.ActionRegexSplit:
+		regexOutput = cmd.Regex.Regex.Split(stdout, -1)
+	case converter.ActionRegexMatch:
+		regexOutput = cmd.Regex.Regex.FindAllString(stdout, -1)
+	default:
+		return breakCmd, fmt.Errorf("unsupported regex action: %s", cmd.Regex.Action)
+	}
 
 	forID := identity.NewID()
 	localCopts := []llb.ConstraintsOpt{
@@ -53,124 +65,17 @@ func handleForLoop(ctx context.Context, d *dispatchState, cmd converter.CommandF
 		llb.ProgressGroup(forID, fmt.Sprintf("FOR %+v", cmd.EXEC), false),
 	}
 	LocalCopts := append(copts, localCopts...)
-	ds := d.Clone()
-	dOpt, err := opt.Clone()
-	if err != nil {
-		return false, err
-	}
 
-	var (
-		stdout    = bytes.NewBuffer(nil)
-		execop    *internal.ExecOp
-	)
-	switch exec := cmd.EXEC.(type) {
-	case *converter.CommandExec:
-		exec.Result = res
-		ic, err := toCommand(exec, dOpt.allDispatchStates)
-		if err != nil {
-			return false, err
+	d.state = d.state.AddEnv("LENGTH", fmt.Sprintf("%d", len(regexOutput)))
+	for i, dv := range regexOutput {
+		d.state = d.state.
+			AddEnv(cmd.As, dv).
+			AddEnv("INDEX", fmt.Sprintf("%d", i))
+		if breakCmd, err = exec(d, cmd.Commands, append(LocalCopts, llb.WithCustomNamef("FOR [%s=%s]", cmd.As, dv))...); err != nil {
+			return breakCmd, err
 		}
-		_, err = dispatch(ctx, ds, ic, dOpt, LocalCopts...)
-		if err != nil {
-			return false, parser.WithLocation(fmt.Errorf("exec command error: %w", err), exec.Location())
-		}
-
-		def, err = ds.state.Marshal(ctx)
-		if err != nil {
-			return false, err
-		}
-
-		execop, err = internal.MarshalToExecOp(def)
-		if err != nil {
-			return false, err
-		}
-
-		if execop == nil {
-			return false, parser.WithLocation(errors.New("no [FOR ... RUN] statement found"), cmd.Location())
-		}
-
-		ctrMounts, err := mountsForContainer(ctx, exec.RUN, execop, ic.sources, res, ds, dOpt)
-		if err != nil {
-			return false, err
-		}
-
-		ctr, ctrErr = internal.CreateContainer(ctx, dOpt.solver.Client(), execop, ctrMounts)
-		if ctrErr != nil {
-			return false, parser.WithLocation(ctrErr, cmd.Location())
-		}
-	case *converter.RunCommand:
-		dc, err := toCommand(exec, dOpt.allDispatchStates)
-		if err != nil {
-			return false, parser.WithLocation(fmt.Errorf("toCommand: %w", err), exec.Location())
-		}
-		if _, err = dispatch(ctx, ds, dc, dOpt, LocalCopts...); err != nil {
-			return false, parser.WithLocation(fmt.Errorf("run command: %s", err), exec.Location())
-		}
-
-		def, err = ds.state.Marshal(ctx)
-		if err != nil {
-			return false, err
-		}
-
-		execop, err = internal.MarshalToExecOp(def)
-		if err != nil {
-			return false, err
-		}
-
-		if execop == nil {
-			return false, parser.WithLocation(errors.New("no [FOR ... RUN] statement found"), cmd.Location())
-		}
-
-		ctrMounts, err := mountsForContainer(ctx, exec, execop, dc.sources, res, ds, dOpt)
-		if err != nil {
-			return false, err
-		}
-
-		ctr, ctrErr = internal.CreateContainer(ctx, dOpt.solver.Client(), execop, ctrMounts)
-		if ctrErr != nil {
-			return false, parser.WithLocation(ctrErr, cmd.Location())
-		}
-	case *converter.CommandProcess:
-		ic, err := toCommand(exec, dOpt.allDispatchStates)
-		if err != nil {
-			return false, err
-		}
-		if err := dispatchProc(ctx, ds, exec, dOpt.proxyEnv, ic.sources, dOpt); err != nil {
-			return false, err
-		}
-	default:
-		return false, parser.WithLocation(fmt.Errorf("unsupported [FOR] command exec: %s", exec.Name()), exec.Location())
-	}
-
-	if cmd.Regex.Action == "" {
-		cmd.Regex.Action = "\n"
-	}
-
-	defaultAs, _ := d.state.Value(ctx, dexfile.ScopedVariable(cmd.As))
-	defer func() {
-		d.state = d.state.WithValue(dexfile.ScopedVariable(cmd.As), defaultAs)
-	}()
-	delim, err := regexp.Compile(cmd.Regex.Regex)
-	if err == nil {
-		var regexOutput []string
-		switch stdout := stripNewlineSuffix(stdout.String())[0]; cmd.Regex.Action {
-		case converter.ActionRegexSplit:
-			regexOutput = delim.Split(stdout, -1)
-		case converter.ActionRegexMatch:
-			regexOutput = delim.FindAllString(stdout, -1)
-		default:
-			return breakCmd, fmt.Errorf("unsupported regex action: %s", cmd.Regex.Action)
-		}
-		for i, dv := range regexOutput {
-			d.state = d.state.
-				WithValue(dexfile.ScopedVariable(cmd.As), dv).
-				WithValue(dexfile.ScopedVariable("INDEX"), i)
-			if breakCmd, err = exec(cmd.Commands, append(LocalCopts, llb.WithCustomNamef("FOR [%s=%s]", cmd.As, dv))...); err != nil {
-				return breakCmd, err
-			}
-			if breakCmd {
-				return true, nil
-			}
+		if breakCmd {
+			return true, nil
 		}
 	}
 
